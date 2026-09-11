@@ -1,0 +1,30 @@
+// Odd divisors only, stopping at sqrt(n). Remainders use repeated doubling.
+// The same remainder function circuitry is reused at both call sites.
+fn remainder(n, divisor) {
+  let remaining = n;
+  while (remaining >= divisor) {
+    let chunk = divisor;
+    while (chunk <= remaining - chunk) {
+      chunk = chunk + chunk;
+    }
+    remaining = remaining - chunk;
+  }
+  return remaining;
+}
+
+fn main(n) {
+  if (n < 2) { return 0; }
+  if (n == 2) { return 1; }
+  if (remainder(n, 2) == 0) { return 0; }
+  let divisor = 3;
+  let square = 9;
+  while (square <= n) {
+    if (remainder(n, divisor) == 0) { return 0; }
+    let increment = divisor + divisor + divisor + divisor + 4;
+    // Test before adding so the next square cannot overflow 32 bits.
+    if (n - square < increment) { return 1; }
+    square = square + increment;
+    divisor = divisor + 2;
+  }
+  return 1;
+}

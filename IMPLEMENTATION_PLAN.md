@@ -1,6 +1,6 @@
 # Implementation Plan
 
-This is a proposed implementation sequence for the design in [DESIGN.md](DESIGN.md), [IO.md](IO.md), [RUNTIME.md](RUNTIME.md), and [DEBUGGER.md](DEBUGGER.md). The repository currently contains documentation only. This plan does not claim that its milestones, tests, or benchmarks have been implemented.
+This is the implementation roadmap for [DESIGN.md](DESIGN.md), [IO.md](IO.md), [RUNTIME.md](RUNTIME.md), and [DEBUGGER.md](DEBUGGER.md). A runnable first version now includes the requested programs, shared functions, structured parallel execution, optional devices, exact WASM, and a matrix/vector phase debugger. See [IMPLEMENTATION.md](IMPLEMENTATION.md) for verified scope and remaining work; not every milestone criterion below is complete.
 
 ## 1. First usable result
 

@@ -2,7 +2,7 @@
 
 Education is the primary product goal. Users should be able to follow how source code becomes a matrix and how each multiplication and ReLU changes the state. This view is part of the first browser demo, not a later visualization enhancement.
 
-This is a design contract, not an implemented UI. It complements [DESIGN.md](DESIGN.md), [IO.md](IO.md), and [RUNTIME.md](RUNTIME.md).
+This is the full design contract. The initial UI now implements phase stepping, matrix/vector views, exact row inspection, source/context markers, and devices. History contains sampled summaries rather than restorable checkpoints; replay and breakpoints remain planned. See [IMPLEMENTATION.md](IMPLEMENTATION.md#runtime-and-debugging) for the shipped subset. This document complements [DESIGN.md](DESIGN.md), [IO.md](IO.md), and [RUNTIME.md](RUNTIME.md).
 
 ## 1. Show the complete update
 

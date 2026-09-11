@@ -1,0 +1,27 @@
+// Store at most 64 Unicode characters. Longer names are drained and truncated.
+// Enter is LF (10). EOF is the reserved non-Unicode value 4294967295.
+fn main() {
+  print("What is your name? ");
+  let name[64];
+  let length = 0;
+  let character = read();
+  while (character != 10) {
+    if (character == 4294967295) {
+      character = 10;
+    } else {
+      if (length < 64) {
+        name[length] = character;
+        length = length + 1;
+      }
+      character = read();
+    }
+  }
+  print("Greetings, ");
+  let index = 0;
+  while (index < length) {
+    putc(name[index]);
+    index = index + 1;
+  }
+  putc(10);
+  return 1;
+}

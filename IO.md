@@ -2,6 +2,12 @@
 
 This proposal extends [DESIGN.md](DESIGN.md) with a required end gate, an optional binary LED, console character input/output, and a 16-by-16 RGB display. It specifies gates/devices and their compiler/runtime contract; it does not implement them. Syntax remains illustrative.
 
+These devices now work in the playground. [IMPLEMENTATION.md](IMPLEMENTATION.md#io)
+describes the actual API: `read()` returns 4294967295 on EOF instead of the proposed
+fault below; presets allow only their used devices. Unused peripherals allocate
+no hardware. `print` currently expands literals in the compiler, not a source-level
+printing library.
+
 ## 1. Principle: the matrix computes, the host observes
 
 Output-only execution retains the same equation:

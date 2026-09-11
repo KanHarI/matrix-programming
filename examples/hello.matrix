@@ -1,0 +1,17 @@
+// The display has only six ports: x, y, red, green, blue, emit.
+// Its framebuffer belongs to the browser, not the matrix.
+fn main() {
+  print("Hello, world!\n");
+  let y = 3;
+  while (y < 13) {
+    pixel(4, y, 80, 220, 190);
+    pixel(11, y, 80, 220, 190);
+    y = y + 1;
+  }
+  let x = 5;
+  while (x < 11) {
+    pixel(x, 7, 80, 220, 190);
+    x = x + 1;
+  }
+  return 1;
+}

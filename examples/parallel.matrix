@@ -1,0 +1,14 @@
+// Both branches advance in the same global matrix updates.
+// Local completion does not terminate the other branch.
+fn countdown(n) {
+  let remaining = n;
+  while (remaining > 0) {
+    remaining = remaining - 1;
+  }
+  return n;
+}
+
+fn main(n) {
+  let (left, right) = parallel { countdown(n), countdown(3) };
+  return left + right;
+}

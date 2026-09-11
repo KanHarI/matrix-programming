@@ -1,0 +1,27 @@
+{
+  "name": "matrix-programming",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.12.0" },
+  "scripts": {
+    "predev": "npm run wasm",
+    "dev": "vite --host 127.0.0.1",
+    "build": "npm run wasm && tsc --noEmit && vite build",
+    "wasm": "node scripts/build-wasm.mjs",
+    "test": "npm run wasm && vitest run",
+    "check": "tsc --noEmit",
+    "test:browser": "playwright test"
+  },
+  "dependencies": {
+    "chevrotain": "^13.2.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^22.20.2",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.0",
+    "vitest": "^5.0.0",
+    "wabt": "^1.0.39"
+  }
+}

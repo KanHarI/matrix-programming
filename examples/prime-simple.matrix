@@ -1,0 +1,26 @@
+// The original counter-and-reset algorithm, expressed as source code.
+// This deliberately exposes many individual arithmetic and control updates.
+fn main(n) {
+  if (n < 2) { return 0; }
+  let divisor = 2;
+  while (divisor < n) {
+    let count = 0;
+    let remainder = 0;
+    while (count < n) {
+      count = count + 1;
+      remainder = remainder + 1;
+      if (remainder == divisor) {
+        if (count == n) { return 0; }
+        while (remainder > 0) {
+          remainder = remainder - 1;
+        }
+      }
+    }
+    while (count > 0) {
+      count = count - 1;
+      remainder = remainder - 1;
+    }
+    divisor = divisor + 1;
+  }
+  return 1;
+}

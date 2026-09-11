@@ -2,6 +2,9 @@
 
 This document records the design discussion and its motivating example. It distinguishes agreed directions from proposed implementation details. Syntax is illustrative; it is not yet a language specification.
 
+The first runnable implementation now exists. See [IMPLEMENTATION.md](IMPLEMENTATION.md)
+for supported syntax, size-first matrix lowering, verification, and limitations.
+
 ## 1. Direction and scope
 
 The language compiles programs into a fixed matrix that repeatedly transforms a persistent state vector through ReLU. The initial demonstration is a primality test encoded in a 24-by-24 integer matrix.

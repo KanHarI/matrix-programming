@@ -1,0 +1,10 @@
+// Six coordinates, with no function machinery or instruction clock.
+// Result / LED 1 means even. Execution takes floor(n / 2) + 2 updates.
+// Favor small inputs when exploring this linear-time circuit.
+fn main(n) {
+  let remaining = n;
+  while (remaining >= 2) {
+    remaining = remaining - 2;
+  }
+  return remaining == 0;
+}

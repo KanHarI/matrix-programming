@@ -1,6 +1,6 @@
 # Numeric Model and WebAssembly Runtime
 
-This document records the fixed-width runtime design. The user has confirmed 32-bit stored program numbers. The language and backend are not implemented, and no performance measurements have been made yet.
+This document records the fixed-width runtime design. The user has confirmed 32-bit stored program numbers. Exact BigInt and WAT-based WebAssembly backends are now implemented and differentially tested. See [IMPLEMENTATION.md](IMPLEMENTATION.md#runtime-and-debugging) for shipped behavior; the broader proposals below remain a roadmap.
 
 ## 1. Initial choice: 32-bit storage, 64-bit accumulation
 
