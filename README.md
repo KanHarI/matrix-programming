@@ -8,7 +8,7 @@ x_{t+1} = \operatorname{ReLU}(W x_t).
 
 The state vector holds data registers, control states, intermediate signals, and outputs. The matrix is the compiled program.
 
-The intended implementation is TypeScript with a Parsec-style parser-combinator library and a browser interface for inspecting and visualizing execution.
+The intended implementation is TypeScript with Chevrotain for lexing/parsing and a browser interface for inspecting and visualizing execution.
 
 The agreed runtime target uses 32-bit unsigned state, signed 32-bit matrix coefficients, and checked results computed with internal 64-bit accumulators. A WebAssembly backend will execute the sparse matrix-vector/ReLU loop; performance is not yet benchmarked.
 

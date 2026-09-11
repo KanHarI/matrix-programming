@@ -6,7 +6,7 @@ This document records the design discussion and its motivating example. It disti
 
 The language compiles programs into a fixed matrix that repeatedly transforms a persistent state vector through ReLU. The initial demonstration is a primality test encoded in a 24-by-24 integer matrix.
 
-The intended implementation environment is TypeScript. Parsing should use a monadic parser-combinator approach in the style of Haskell's Parsec. The eventual interface is a web page with execution visualization.
+The intended implementation environment is TypeScript. Chevrotain is the selected lexer/parser toolkit, following evaluation of parser-combinator and grammar-toolkit alternatives. This supersedes the original Parsec-style combinator proposal. The eventual interface is a web page with execution visualization.
 
 The function design has these requirements:
 
@@ -386,7 +386,7 @@ Bounded explicit frames are the proposed implementation. Integer-encoded stacks 
 
 ## 7. Parser, compiler, and web visualization
 
-The parser should follow Parsec-style composition in TypeScript. No particular parser library has been selected. Parsing produces syntax; type rules, storage allocation, and calling conventions belong in later compiler stages.
+Chevrotain is the selected parser library. Define its lexer tokens and `CstParser` grammar rules in TypeScript, then convert the concrete syntax tree (CST) into our typed abstract syntax tree with a visitor. Preserve source spans and report lexical/syntax diagnostics before compilation. Parsing produces syntax; type rules, storage allocation, and calling conventions belong in later compiler stages. See the [Chevrotain parser tutorial](https://chevrotain.io/docs/tutorial/step2_parsing.html) and [CST visitor tutorial](https://chevrotain.io/docs/tutorial/step3a_adding_actions_visitor.html).
 
 The proposed execution backend is WebAssembly, with sparse matrix storage, double-buffered 32-bit state, and exact bounded 64-bit accumulation. TypeScript retains parsing, compilation coordination, and the web interface. [RUNTIME.md](RUNTIME.md) explains the boundary and performance validation plan; no execution backend has been implemented yet.
 
@@ -394,8 +394,9 @@ The proposed pipeline, updated to reflect shared function bodies, is:
 
 ```text
 Source text
-  -> parser combinators
-  -> abstract syntax tree
+  -> Chevrotain lexer and parser
+  -> concrete syntax tree
+  -> visitor producing a typed abstract syntax tree
   -> name resolution, type checking, and call-graph validation
   -> shared function lowering and calling conventions
   -> optional small-function inlining
@@ -600,4 +601,4 @@ The detailed plan and milestone completion criteria are in [IMPLEMENTATION_PLAN.
 6. Add explicitly recursive functions with bounded matrix-implemented frames and stack overflow handling.
 7. Improve visualization, examples, replay, and measured execution/size reports.
 
-This sequence is a proposal rather than completed work. The plan proposes a small typed Parsec-style combinator layer, CSR artifacts, a Rust WASM executor, and a Vite TypeScript page; no dependencies or scaffold have been installed yet. Concrete grammar details, transfer/scheduling circuits, bound verification, and frame layout are resolved and tested in their respective milestones.
+This sequence is a proposal rather than completed work. Chevrotain is the selected parser toolkit; the plan also proposes CSR artifacts, a Rust WASM executor, and a Vite TypeScript page. No dependencies or scaffold have been installed yet. Concrete grammar details, transfer/scheduling circuits, bound verification, and frame layout are resolved and tested in their respective milestones.

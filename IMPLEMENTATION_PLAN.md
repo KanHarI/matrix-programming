@@ -9,11 +9,12 @@ The first usable application should let someone edit a small parity program, ent
 This is the first complete path through the product:
 
 ```text
-Source -> parser -> checked program -> control/register IR -> fixed sparse W
-                                                               |
-                                         initial state -> repeated ReLU updates
-                                                               |
-                                              register view, LED, end
+Source
+  -> Chevrotain lexer/parser and CST visitor
+  -> typed AST and checked control/register IR
+  -> fixed sparse W + initial state
+  -> repeated ReLU updates
+  -> register view, LED, end
 ```
 
 An earlier foundation change establishes the artifact format and checks matrix execution on small hand-authored fixtures. Subsequent milestones extend the same compiler and runtime contracts; they do not replace matrix execution with a source-language interpreter.
@@ -33,7 +34,7 @@ An earlier foundation change establishes the artifact format and checks matrix e
 
 Use TypeScript for parsing, semantic analysis, compiler IR, artifact metadata, the exact reference executor, and the UI. Use a small Rust module for the later WebAssembly execution backend. Rust's `wasm32-unknown-unknown` target is intended for minimal WebAssembly environments, including browser/JavaScript use. [Rust target documentation](https://doc.rust-lang.org/rustc/platform-support/wasm32-unknown-unknown.html).
 
-For parsing, implement a small typed, project-local Parsec-style combinator layer supporting `map`, `chain`, choice, sequencing, repetition, delayed recursion, labels, and source spans. Keep it specific to this grammar rather than building a general parsing framework. Parsimmon matches the requested style, but its repository currently marks it unmaintained, so it is not the proposed dependency. [Parsimmon repository](https://github.com/jneen/parsimmon).
+Chevrotain is the selected lexer/parser toolkit. Define tokens and grammar rules directly in TypeScript using its lexer and `CstParser`, then use a CST visitor to construct our own typed AST with source spans. Keep type checking and matrix generation in later stages. This supersedes the earlier plan to implement project-local parser combinators. [Chevrotain lexer tutorial](https://chevrotain.io/docs/tutorial/step1_lexing.html), [parser tutorial](https://chevrotain.io/docs/tutorial/step2_parsing.html), and [CST visitor tutorial](https://chevrotain.io/docs/tutorial/step3a_adding_actions_visitor.html).
 
 Use Vite to develop/build the TypeScript browser page. Begin with a text editor area, ordinary DOM controls, and canvas/SVG views; do not make the first compiler milestone depend on choosing a large UI framework or editor component. Vite documents TypeScript handling, WebAssembly loading, and worker integration. The precise Rust/WASM packaging path should be smoke-tested when that backend is introduced. [Vite features](https://vite.dev/guide/features.html).
 
@@ -42,7 +43,7 @@ Keep the first repository structure small:
 ```text
 src/
   artifact/             Shared formats, validation, source maps
-  parser/               Typed combinators, grammar, syntax tree
+  parser/               Chevrotain tokens/rules, CST visitor, typed AST
   compiler/             Semantics, control/register IR, lowering, allocation
   runtime/              Exact reference executor, device/event contracts
   web/                  Editor, worker coordination, visualizations, devices
@@ -81,7 +82,7 @@ If a primitive only supports a narrower proved range, make that limitation expli
 
 Finalize a small grammar using the existing illustrative syntax as the starting point: one `main` function, typed parameters/result, literals, locals, assignments, affine/ReLU expressions, comparisons, `if`/`else`, `while`, `parallel`, return, and halt. Specify operator precedence and the meaning of natural-number subtraction. Arbitrary multiplication and division are not required for this milestone.
 
-The parser attaches source spans. Semantic analysis resolves names and checks types before lowering. Add useful syntax/type errors, including integer literals outside the supported range. The parser must handle consuming versus non-consuming failures and prevent repetition of an empty parser from looping forever.
+Configure token positions and preserve source spans through the CST visitor. Semantic analysis resolves names and checks types before lowering. Add useful lexical, syntax, and type errors, including integer literals outside the supported range. Validate the grammar through Chevrotain's self-analysis; test keyword/identifier boundaries, operator precedence, comments, character/string escapes, unexpected tokens, and incomplete blocks. Recoverable editor parsing may return partial syntax, but any lexical or syntax errors block matrix compilation: a recovered tree is not permission to execute malformed source.
 
 Build a thin browser page with source editing, numeric input, Compile, Run, Pause, Reset, matrix-update stepping, instruction stepping, a register table, an LED/result view, and an end indicator. Display matrix dimension and nonzero count. For small matrices, show a coefficient grid; larger ones need a bounded/virtualized or sparse view.
 
