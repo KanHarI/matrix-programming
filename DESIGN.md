@@ -191,7 +191,7 @@ The runtime terminates when the required end coordinate becomes nonzero, then pr
 
 Initially, the host initializes designated input coordinates, runs the recurrence, and reads designated output coordinates.
 
-[IO.md](IO.md) extends this with console character input/output and a matrix-owned 16-by-16 RGB framebuffer. Character emission and frame presentation are observations of completed updates. Blocking console reads introduce an explicit external input term, `x_next = relu(W*x + B*u)`, with fixed `W` and `B`; recorded input deliveries make interactive runs replayable.
+[IO.md](IO.md) extends this with console character input/output and a six-coordinate RGB pixel-output port: `X, Y, R, G, B, emission_flag`. Each emission updates one pixel in a host-owned 16-by-16 image; the matrix does not store the framebuffer. Character and pixel emissions are observations of completed updates. Blocking console reads introduce an explicit external input term, `x_next = relu(W*x + B*u)`, with fixed `W` and `B`; recorded input deliveries make interactive runs replayable.
 
 ### Invariants and execution contracts
 
@@ -415,7 +415,7 @@ The compiler should retain source locations, function identities, call sites, in
 - Single matrix updates as well as instruction-level stepping.
 - Step-into and step-over behavior for function calls.
 - Terminal results, execution-budget exhaustion, and stack overflow.
-- Console character input/output, pending reads, and explicitly presented frames from a 16-by-16 RGB display, as specified in [IO.md](IO.md).
+- Console character input/output, pending reads, pixel emissions, and the retained 16-by-16 RGB screen image, as specified in [IO.md](IO.md).
 
 These are intended capabilities, not implemented features. Shared bodies require execution context in addition to a static source map to identify the current caller.
 

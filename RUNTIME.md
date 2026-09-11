@@ -107,7 +107,7 @@ For each row, the executor:
 
 The current buffer is read-only during the update. The next buffer is separate, preserving simultaneous assignment. A dense reference or alternative kernel is possible, but sparsity is the expected fit for compiled control and register operations.
 
-For `N` coordinates, each state buffer occupies `4*N` bytes. The 768 logical color channels occupy 3,072 bytes within one buffer even though their semantic range is only one byte. Packing display coordinates separately would require a different physical execution layout and is not part of the initial uniform-word design.
+For `N` coordinates, each state buffer occupies `4*N` bytes. The display's six-coordinate output port occupies 24 bytes within one buffer, excluding helper state. Its retained 16-by-16 image lives in separate host/device memory and is not part of the recurrence. The matrix stores no implicit per-pixel framebuffer.
 
 Expose state to TypeScript through typed-array views of WebAssembly linear memory. Avoid copying the entire matrix or allocating fresh JS objects on each update. Refresh views if memory growth invalidates them. The module implementation language and build toolchain are still open; TypeScript does not have to implement the numerical kernel itself.
 
@@ -115,11 +115,11 @@ Expose state to TypeScript through typed-array views of WebAssembly linear memor
 
 Provide a one-update debugging operation and a bounded batch operation. A batch stops at its budget, halt, fault, a breakpoint, an input request, or an event-buffer capacity boundary.
 
-Normal halt is exactly `state[endIndex] != 0`, checked initially and after every committed update. Inspect final LED/output state and record same-tick character/frame events before stopping; do not honor a simultaneous read request. Once stopped, the runtime freezes the committed state and executes no extra cleanup tick. A mathematical fixed point of every row is not required. `end` and device flags are whole 32-bit coordinates, never packed status bits.
+Normal halt is exactly `state[endIndex] != 0`, checked initially and after every committed update. Inspect final LED/output state and record same-tick character/pixel events before stopping; do not honor a simultaneous read request. Once stopped, the runtime freezes the committed state and executes no extra cleanup tick. A mathematical fixed point of every row is not required. `end` and device flags are whole 32-bit coordinates, never packed status bits.
 
-The WebAssembly loop inspects output bits after every committed update and records character/frame events. TypeScript receives batches of events rather than requiring one cross-boundary call per multiply or row. It can request stopping after each presentation for frame-by-frame viewing.
+The WebAssembly loop inspects output flags after every committed update and records character/pixel events. TypeScript receives batches of events rather than requiring one cross-boundary call per multiply or row. It can request stopping after each pixel emission for drawing inspection. Every pixel event contains the five payload values from its emission tick; the host applies events to its retained image in order.
 
-Frame events contain immutable snapshots or storage with an explicit lifetime. Output-buffer exhaustion must return control before dropping or duplicating an event. Reserve enough event capacity before committing a tick, or retain the committed event as pending before allowing another update.
+Event payloads are immutable copies or use storage with an explicit lifetime; they cannot alias the reusable pixel port. Output-buffer exhaustion must return control before dropping or duplicating an event. Reserve enough event capacity before committing a tick, or retain the committed event as pending before allowing another update. Host image snapshots or a replayable pixel history accompany checkpoints; the matrix state alone cannot restore the screen.
 
 At a console read boundary, execution returns control until a delivery is available. It must never batch past an undelivered read. These requirements preserve the protocol in [IO.md](IO.md).
 

@@ -18,7 +18,7 @@ Every program has an `end` output coordinate: nonzero terminates execution. An o
 
 See [DESIGN.md](DESIGN.md) for the discussion record: execution mechanics, language primitives, shared functions, explicit recursive functions, stack implementations, compiler architecture, and the original primality example.
 
-See [IO.md](IO.md) for the end gate, LED, console character input/output, and matrix-owned 16-by-16 RGB display, including blocking reads, replayable input, output events, framebuffer updates, and browser integration.
+See [IO.md](IO.md) for the end gate, LED, console character input/output, and six-coordinate RGB pixel-output port (`X, Y, R, G, B, emission_flag`). The browser retains the 16-by-16 screen image outside the matrix.
 
 See [RUNTIME.md](RUNTIME.md) for the numeric model, the 32-bit versus 64-bit tradeoff, overflow semantics, and the proposed WebAssembly backend.
 
