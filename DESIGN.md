@@ -17,6 +17,8 @@ The function design has these requirements:
 
 Stored program numbers are 32-bit, as confirmed in the runtime discussion. I/O capabilities are independently optional: console output, console input, and the 16-by-16 RGB screen. Disabled or unused devices add no coordinates, matrix entries, or device-specific control states. A pure parity checker receives initial arguments and returns its result without linking any peripheral. See [IO.md](IO.md) for the capability toggles and linking contract.
 
+Every program also exposes a required `end` coordinate: any nonzero value terminates execution. An optional LED displays whether a selected existing coordinate is nonzero, with no added matrix storage. Gates are entire 32-bit vector positions, not packed bits. The LED is normally enabled when bound to a register and can be hidden or rebound without recompilation.
+
 Earlier discussion considered inlining all functions as a simple first compiler strategy. The subsequent requirement for size efficiency makes shared bodies the default design direction. Inlining remains a possible optimization for small functions.
 
 ## 2. Execution model
@@ -75,7 +77,11 @@ bit finished = 0
 const one = 1
 ```
 
-The compiler must preserve the `bit` invariant: its value is always zero or one. Bounded natural-number types are a useful extension:
+The compiler must preserve the `bit` invariant: its value is always zero or one.
+
+A `bit` variable still occupies a whole 32-bit state coordinate. It is a semantic value restriction, not bit packing. The end gate and LED observation use nonzeroness and do not require the observed coordinate to be a `bit`.
+
+Bounded natural-number types are a useful extension:
 
 ```text
 nat<100> counter
@@ -181,7 +187,7 @@ A source-level halt records a result:
 halt prime = true
 ```
 
-The proposed runtime contract is that halted state becomes a fixed point: further updates preserve the result and state. This is a target for the compiler, not something established for every coordinate of the original primality example, whose host loop stops immediately on a terminal flag.
+The runtime terminates when the required end coordinate becomes nonzero, then preserves the final committed state by scheduling no further updates. A top-level return or `halt` compiles to raising end after preparing the result; returning from a helper does not raise end. This replaces the earlier proposal to require an absorbing mathematical fixed point, avoiding extra circuitry merely to freeze an already terminated program. The runtime observes final output events before honoring end and ignores any simultaneous input request.
 
 Initially, the host initializes designated input coordinates, runs the recurrence, and reads designated output coordinates.
 

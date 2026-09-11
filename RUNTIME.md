@@ -96,7 +96,7 @@ state_next: u32[]
 
 The input matrix can use a separate small structure or equivalent fixed input-column encoding. Its contributions participate in the same complete row sum before ReLU.
 
-Device dependencies are resolved before allocating these structures. Disabled or unused capabilities contribute no rows, columns, nonzero entries, or device-specific state/control storage. Omit `B` entirely when console input is absent. The runtime uses the optional device manifest to choose observation/input handling; a pure program needs no peripheral polling or universal I/O wrapper. Details and interface sizes are in [IO.md](IO.md).
+Device dependencies are resolved before allocating these structures. Disabled or unused peripherals contribute no rows, columns, nonzero entries, or device-specific state/control storage. Omit `B` entirely when console input is absent. Every artifact identifies its core end coordinate, checked as a whole word for nonzeroness. An optional LED maps an existing coordinate to a host-side nonzero display and adds no machine storage. A pure program needs no console/screen polling or universal I/O wrapper. Details and interface sizes are in [IO.md](IO.md).
 
 For each row, the executor:
 
@@ -114,6 +114,8 @@ Expose state to TypeScript through typed-array views of WebAssembly linear memor
 ### Batch execution and I/O
 
 Provide a one-update debugging operation and a bounded batch operation. A batch stops at its budget, halt, fault, a breakpoint, an input request, or an event-buffer capacity boundary.
+
+Normal halt is exactly `state[endIndex] != 0`, checked initially and after every committed update. Inspect final LED/output state and record same-tick character/frame events before stopping; do not honor a simultaneous read request. Once stopped, the runtime freezes the committed state and executes no extra cleanup tick. A mathematical fixed point of every row is not required. `end` and device flags are whole 32-bit coordinates, never packed status bits.
 
 The WebAssembly loop inspects output bits after every committed update and records character/frame events. TypeScript receives batches of events rather than requiring one cross-boundary call per multiply or row. It can request stopping after each presentation for frame-by-frame viewing.
 

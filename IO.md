@@ -1,6 +1,6 @@
-# Console and RGB Display I/O
+# End Gate, LED, Console, and RGB Display I/O
 
-This proposal extends [DESIGN.md](DESIGN.md) with console character input/output and a 16-by-16 RGB display. It specifies devices and their compiler/runtime contract; it does not implement them. Syntax remains illustrative.
+This proposal extends [DESIGN.md](DESIGN.md) with a required end gate, an optional binary LED, console character input/output, and a 16-by-16 RGB display. It specifies gates/devices and their compiler/runtime contract; it does not implement them. Syntax remains illustrative.
 
 ## 1. Principle: the matrix computes, the host observes
 
@@ -14,7 +14,50 @@ The matrix owns the output registers and the framebuffer. After each completed m
 
 Interactive reads use the explicit input extension `x_next = relu(W*x + B*u)` described in Section 7. Both matrices remain fixed; only designated input ports receive external values. Output is deterministic given the initial state and recorded input deliveries. Real-time animation speed is a host scheduling choice, not part of program arithmetic.
 
-There are two user-facing devices, with the console split into independently selectable input and output capabilities:
+### Gates are whole vector positions
+
+Every gate or payload is a whole 32-bit coordinate of the state vector. Earlier references to a `bit` mean a coordinate constrained to the values zero and one; they do not mean a bit packed inside another number. There is no status-word bitmask to unpack.
+
+The state produced by each matrix update is also the vector the runtime observes. A manifest assigns output meanings to positions; it does not require a second copied output vector or fixed positions common to every program. For example:
+
+```text
+position:      0       1       2       3       4
+meaning:       n       d       r     answer   end
+value:        10       2       0       1       1
+                                      |       |
+                                   LED on   stop
+```
+
+These indices and values are illustrative. The LED reads the complete value at position 3, and termination reads the complete value at position 4. `2`, `42`, and `4,294,967,295` are all nonzero for either gate, not just values with their lowest binary bit set.
+
+### Required end gate
+
+Every compiled program identifies one state coordinate as `end`. The rule is `state[endIndex] != 0` means execution has terminated; zero means execution may continue. The end gate is a required part of the core program interface, not a toggleable peripheral.
+
+The compiler normally initializes it to zero and sets it to one for a top-level return or `halt`. A return from an ordinary helper or recursive invocation routes control to its caller and must not set the program end gate. The external gate accepts any nonzero word even if compiler-generated termination normally uses one.
+
+The end position can reuse the compiler's existing termination register; it is not an additional wrapper around a separate mandatory halt flag. Its binding must not alias a temporary control flag that becomes nonzero before the program actually finishes. Infinite-running programs still have the end binding, but may leave it zero forever.
+
+The runtime checks end on initial state and after every committed update. Once nonzero, it freezes that committed state and schedules no further matrix updates, even if a larger batch budget remains. Repeated debugger inspection does not resume execution or re-emit events. If initial end is already nonzero, no matrix update runs; the initial LED state may still be displayed.
+
+This replaces the earlier proposal that every halted machine must itself become a mathematical fixed point. Stable final state is enforced by stopping the runtime; the compiler need not add circuitry to make every row absorbing.
+
+### Optional binary LED
+
+An LED binding identifies a state coordinate to observe:
+
+```text
+LED off: state[ledIndex] == 0
+LED on:  state[ledIndex] != 0
+```
+
+The selected coordinate may be a result, counter, input, or other program register. It need not have type `bit`. The LED is a level display, not a pulse: it reflects the currently inspected state and remains at the final value after end. It needs no emission flag, reset protocol, or `present` call.
+
+Binding the LED to an existing position is metadata only. It introduces no coordinate, matrix row/column, comparison circuitry, or execution phase. The host performs the nonzero test for display. A program may compute a dedicated indicator variable if desired, but that is an ordinary program value; observing it creates no further storage.
+
+The LED is enabled by default when a binding is supplied, and can be toggled off or rebound in the UI without recompiling the matrix. With no binding it is absent; the runtime must not manufacture a register for it. When running quickly the UI may sample the latest state per repaint, so short pulses can be inspected in the trace/debugger but are not promised to be visually observable in real time.
+
+The remaining user-facing devices are console and display, with the console split into independently selectable input and output capabilities:
 
 | Device | Matrix-owned state | Host action |
 | --- | --- | --- |
@@ -25,20 +68,22 @@ The browser's displayed image and accumulated console transcript are presentatio
 
 ### Optional devices: no reserved hardware
 
-Every device capability is optional at compile time. The compiler does not reserve a universal I/O area, a device bus, a global device-enable vector, or placeholder rows/columns. A disabled or unused device contributes **zero coordinates, zero matrix entries, and zero device-specific control states**.
+Every peripheral capability is optional. Console and screen are linked at compile time; the LED is a read-only observation binding. The required end gate belongs to the core program. The compiler does not reserve a universal I/O area, a device bus, a global device-enable vector, or placeholder rows/columns. A disabled or unused peripheral contributes **zero coordinates, zero matrix entries, and zero device-specific control states**.
 
 The initial capabilities and standard interface sizes are:
 
 | Capability | Source operations | Device-state coordinates when linked |
 | --- | --- | --- |
+| Required `end` | Top-level return, `halt`, or explicit termination signal | 1 core binding; reuse the program's termination coordinate |
+| `led` | Observe a selected coordinate's nonzeroness | 0 additional coordinates when bound to an existing register |
 | `console.output` | `putc`, literal `write`/`println`, `print_nat` | 2: character payload and emission bit |
 | `console.input` | `readc` | 4: request bit, available bit, EOF bit, character latch |
 | `screen.rgb16` | `set_pixel`, `present`, drawing helpers | 769: 768 RGB channels and presentation bit |
-| None | Initial arguments and final program result only | 0 device coordinates |
+| No optional peripherals | Initial arguments, final result, required end | 0 peripheral coordinates beyond the core program |
 
 These are interface sizes, not total compiler overhead. An included capability also needs the reachable routines, phase controls, arguments, and temporaries that implement its operations. That additional machinery must also disappear when the capability is absent. Console input does not pull in output, and console output does not pull in input. The screen requires neither.
 
-The existing full-interface count remains `2 + 4 + 769 = 775` words. Each interface word uses the agreed 32-bit state representation, including channels constrained to `0..255`. Sparse matrix indices and compiler/runtime metadata are not counted as state coordinates.
+The console/screen full-interface count remains `2 + 4 + 769 = 775` words, excluding the core end coordinate and any ordinary result being observed by the LED. Each interface word uses the agreed 32-bit state representation, including channels constrained to `0..255`. Sparse matrix indices and compiler/runtime metadata are not counted as state coordinates.
 
 ### Enablement and linking
 
@@ -52,13 +97,13 @@ const devices = {
 };
 ```
 
-All capabilities default to disabled. Enabling one permits source code to use it; it does not allocate that device when the program never references it through reachable code.
+The three console/screen capabilities default to disabled. Enabling one permits source code to use it; it does not allocate that device when the program never references it through reachable code. End is always bound. LED enablement is independent metadata, normally on when a register has been selected.
 
 The compiler performs reachability analysis from the program entry point, follows ordinary and recursive calls, and links only the device operations that remain reachable. Merely importing a library with unused printing or drawing functions must not allocate their devices. The guarantee concerns unused reachable-code dependencies, not general proof that a dynamically controlled branch can never execute.
 
 A reachable call to a disabled capability is a compile-time error identifying the call and required toggle. The compiler must not silently delete that effect or implicitly enable other devices. An enabled but unused capability is omitted and reported as unused. Compiler reports should distinguish allowed capabilities from those actually linked into the matrix.
 
-Changing a device toggle changes compilation configuration. Recompile and start a new run; do not resize or modify `W` during an existing run. Hiding a console/display panel is a separate UI action that does not disable the device or shrink the matrix. Checkpoints and traces must identify the compiled artifact and its linked device layout.
+Changing a console/screen capability toggle changes compilation configuration. Recompile and start a new run; do not resize or modify `W` during an existing run. Hiding a console/display panel is a separate UI action that does not disable the device or shrink the matrix. The read-only LED toggle needs no recompilation. Checkpoints and traces must identify the compiled artifact and its linked device layout; LED viewing preferences do not affect machine replay.
 
 ### Minimal programs and final results
 
@@ -74,11 +119,11 @@ fn main(n: nat) -> bit {
 }
 ```
 
-This illustrative program needs no I/O capabilities. Its input is placed in an ordinary argument register before execution. Its answer is read from the ordinary result register after termination; a host UI may display that value without the program printing a character.
+This illustrative program needs no console or screen capabilities. Its input is placed in an ordinary argument register before execution. Its top-level return commits the answer and raises end. Binding the LED to the ordinary result register shows even as on and odd as off without allocating any extra coordinate. End must be separate from that Boolean answer: an odd result is zero but the program must still terminate.
 
 Arguments, result registers, and the program's own termination/control state are part of its computation, not a peripheral ABI. The compiler should reuse/map ordinary registers where valid, rather than adding a universal device wrapper to every program.
 
-For such a program, execution is simply `relu(W*x)`. There is no input matrix `B` to allocate, no input packet/latches, no event bits, and no framebuffer. Debugger labels, register inspection, and host-side result display are metadata/observation features and do not require device coordinates.
+For such a program, execution is simply `relu(W*x)` with the required end check. There is no input matrix `B` to allocate, no input packet/latches, no console/screen event positions, and no framebuffer. Debugger labels, LED binding, register inspection, and host-side result display are metadata/observation features and do not require extra coordinates.
 
 ### Compilation contract
 
@@ -93,7 +138,7 @@ entry-point reachability
   -> emit W, optional B, and optional device metadata
 ```
 
-Only console input currently requires `B`; output-only or device-free artifacts omit it. A runtime may share host code across device combinations, but it must dispatch from metadata without allocating absent ports inside the machine. A device-free execution path needs no per-tick peripheral polling. There is no fixed gap in register numbering where an excluded device would have been.
+Only console input currently requires `B`; output-only or peripheral-free artifacts omit it. A runtime may share host code across device combinations, but it must dispatch from metadata without allocating absent ports inside the machine. Every execution path checks end. A peripheral-free path needs no console/screen polling; an optional LED observation adds no matrix computation. There is no fixed gap in register numbering where an excluded peripheral would have been.
 
 ## 2. Source-language API
 
@@ -206,12 +251,14 @@ The compiler exports a device manifest giving the coordinate indices and framebu
 
 | Register | Type | Meaning |
 | --- | --- | --- |
+| `end` | `nat` | Required: stop when nonzero |
+| LED-selected existing register | Any stored nonnegative word | Optional: light when nonzero |
 | `io.console.codepoint` | `char` when emitting | Character payload |
 | `io.console.emit` | `bit` | Emit one character at this completed update |
 | `io.screen.rgb[0..767]` | `u8` | Persistent drawing buffer |
 | `io.screen.present` | `bit` | Present the buffer at this completed update |
 
-If both console output and the screen are linked, these are 771 device-state coordinates. This count excludes control states, argument registers, constants, runtime errors, and the temporary coordinates needed to implement operations. The groups are independently optional; neither reserves space in artifacts that omit it.
+If both console output and the screen are linked, their rows account for 771 device-state coordinates, excluding the core end coordinate and the existing value observed by an LED. This count also excludes control states, argument registers, constants, runtime errors, and the temporary coordinates needed to implement operations. The console/screen groups are independently optional; neither reserves space in artifacts that omit it.
 
 Console input adds a `read_request` output bit and three input-latch coordinates (`available`, `eof`, and `codepoint`), bringing the full device-state interface to 775 coordinates before compiler working storage when all three capabilities are linked. A program that only reads characters needs those four interface coordinates, without the console-output pair or screen. The input vector itself is external to this count.
 
@@ -245,9 +292,11 @@ If one tick contains both a console and display event, both use that tick's comp
 
 ### Halt, faults, and execution budgets
 
-Source-level halt and runtime errors occur after any preceding completed output instructions have cleared their event bits. Terminal states have both event bits zero. This prevents repeated stepping of a halted machine from producing more output.
+After each successful update, observe the LED state and deliver any character/frame events from that committed state, then check end. If end is nonzero, terminate before another update or input delivery. This permits a final output event and end in the same tick without losing that event. Output is observed exactly once per committed tick; a stopped machine does not emit it again just because its final state remains visible.
 
-Halting does not implicitly present the drawing buffer or append a newline. A program must request those effects explicitly. Terminal states also have `read_request == 0`; they cannot issue new input requests.
+Halting does not implicitly present the drawing buffer or append a newline. A program must request those effects explicitly. End takes priority over a simultaneous read request: that request is ignored and no character is consumed. The compiler should avoid generating competing requests, but the host's precedence is defined regardless.
+
+Runtime faults, including numeric overflow before a candidate step commits, are separate abnormal stops. They do not require forcing the end coordinate nonzero or observing events from a failed update. The end rule describes normal termination from committed state.
 
 When a host budget expires partway through an instruction, effects already committed remain in the transcript. Prepared but uncommitted console data produces no character. Partially updated drawing-buffer values remain invisible until a later `present`. Resuming a paused run continues from the saved state without repeating events.
 
@@ -311,6 +360,11 @@ The compiler emits metadata rather than making the browser guess coordinate mean
 
 ```ts
 interface IOLayout {
+  end: number; // required vector index; value != 0 stops execution
+  led?: {
+    register: number; // existing vector index, not a bit offset
+    enabled: boolean;
+  };
   console?: {
     output?: {
       codepoint: number;
@@ -332,13 +386,13 @@ interface IOLayout {
 }
 ```
 
-Absent capabilities have absent manifest entries, not zero-filled device registers. The `console` object is omitted when neither direction is linked. A device-free artifact can omit I/O metadata altogether; initial argument and final result locations remain in the normal program interface. This shape permits input-only programs without implicitly allocating console output.
+Absent peripherals have absent manifest entries, not zero-filled device registers. The `console` object is omitted when neither direction is linked. Every artifact retains its required `end` binding; a minimal artifact can contain just that index, normal argument/result metadata, and an optional LED binding. This shape permits input-only programs without implicitly allocating console output.
 
 Register indices and dimensions are ordinary host numbers. Machine state uses unsigned 32-bit words, exposed through a `Uint32Array` view of WebAssembly memory. Stored values are exactly representable as JavaScript numbers; general weighted sums must use the checked accumulation model in [RUNTIME.md](RUNTIME.md). The host still validates character and color ranges before rendering.
 
 The production loop may execute inside WebAssembly and return batched event records. It must inspect each completed update internally and stop at input boundaries; batching does not permit skipping event observation.
 
-For an artifact with all three capabilities, the conceptual step loop is:
+Before entering the loop, inspect initial LED state and stop immediately if initial end is nonzero. For an artifact with all three console/screen capabilities, a conceptual committed step is:
 
 ```text
 input = delivery_for_pending_read_or_zero()
@@ -346,14 +400,18 @@ input = delivery_for_pending_read_or_zero()
 state = matrix_relu_step(W, state, B, input)
 tick += 1
 
+if led.enabled:
+    observe_led(state[led.register] != 0)
+
 if console.emit == 1:
     record_character(run_id, tick, console.codepoint)
 
 if screen.present == 1:
     record_frame(run_id, tick, copy_of_rgb_buffer)
 
-inspect_terminal_state()
-if not_terminal and console.read_request == 1:
+if state[endIndex] != 0:
+    stop_with_final_state()
+else if console.read_request == 1:
     record_pending_read(run_id, tick)
 ```
 
@@ -444,6 +502,9 @@ When the compiler/runtime is implemented, meaningful behavioral checks include:
 - Invalid dynamic arguments fault before committing a pixel write or character event.
 - Drawing is invisible until presentation, and a presented frame remains unchanged by later buffer writes.
 - Ordinary and recursive callers preserve call/return behavior across multi-update I/O routines.
+- End values of 1, 2, and the unsigned maximum all stop execution; zero alone permits continuing.
+- No batch runs an additional matrix update after end is observed, and an initially nonzero end stops before the first update.
+- A final console/frame event is delivered once if committed with end; a simultaneous read request consumes no input.
 - Halt produces no repeated events and does not implicitly present unfinished drawing.
 - A pending read with no queued character freezes the machine tick and resumes with exactly one delivery.
 - Queued and pasted text is consumed in scalar order; NUL, EOF, and absence of input are distinct.
@@ -462,3 +523,6 @@ Device-linking acceptance criteria additionally include:
 - A program without the screen has no RGB coordinates, pixel decoder, display-specific phases, or presentation bit.
 - Calling a disabled device reports a compile-time error instead of silently omitting the operation or enabling hardware.
 - All eight combinations of the three capabilities produce manifests and runtimes consistent with their actual reachable device usage.
+- Every artifact includes a valid end binding without introducing a second redundant halt register.
+- Enabling, disabling, or rebinding an LED observer changes no matrix dimensions, coefficients, or state values.
+- An LED bound to values 0, 1, 2, and the unsigned maximum displays off, on, on, and on; it does not test a packed binary bit.
