@@ -590,14 +590,14 @@ During the discussion, an exact Python-integer simulation of the supplied rows c
 
 ## 9. Suggested implementation sequence and open decisions
 
-A proposed sequence is:
+The detailed plan and milestone completion criteria are in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md). The current sequence is:
 
-1. Define the initial grammar and implement the checked 32-bit `nat`/`bit` model described in [RUNTIME.md](RUNTIME.md).
-2. Parse and type-check registers, expressions, counter operations, and control flow.
-3. Lower instructions to explicit states and compile the fixed matrix with source maps, then validate a WebAssembly executor against an exact reference evaluator.
-4. Implement shared, nonrecursive functions with static invocation storage.
-5. Build browser execution inspection and instruction-level stepping.
-6. Add explicitly recursive functions with bounded stack frames and overflow handling.
-7. Benchmark sparse execution and consider optimizations and richer types, including a separately specified 64-bit profile if warranted.
+1. Define the sparse artifact and an exact reference executor with checked 32-bit state and end detection.
+2. Validate primitive matrix lowering, then parse/compile and visualize a device-free parity program.
+3. Implement shared, nonrecursive functions with static invocation storage.
+4. Link optional console input/output and the six-coordinate pixel port with no unused-device overhead.
+5. Implement a WebAssembly executor and compare its full state/event traces against the reference backend.
+6. Add explicitly recursive functions with bounded matrix-implemented frames and stack overflow handling.
+7. Improve visualization, examples, replay, and measured execution/size reports.
 
-This sequence is a proposal rather than an implementation commitment. Remaining choices include the parser library, concrete syntax, arithmetic algorithms, matrix storage format, transfer and scheduling strategies, invariant checking, frame layout, and visualization framework. No external dependencies or application scaffold have been selected yet.
+This sequence is a proposal rather than completed work. The plan proposes a small typed Parsec-style combinator layer, CSR artifacts, a Rust WASM executor, and a Vite TypeScript page; no dependencies or scaffold have been installed yet. Concrete grammar details, transfer/scheduling circuits, bound verification, and frame layout are resolved and tested in their respective milestones.
