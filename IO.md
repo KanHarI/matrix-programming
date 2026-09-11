@@ -184,7 +184,7 @@ Initially, `write` and `println` can accept string literals only: the compiler e
 
 Console output is an append-only text stream. LF separates lines. Control characters are not commands for cursor movement, terminal escape sequences, or HTML evaluation. The transcript preserves emitted scalar values; the UI may show normally invisible controls in an escaped inspection view.
 
-`readc` consumes exactly one queued input scalar and returns it. If none is available, it blocks the whole sequential machine without advancing matrix ticks. Input is not automatically echoed to the output transcript; an echo program explicitly calls `putc`:
+`readc` consumes exactly one queued input scalar and returns it. If none is available, it blocks the whole machine without advancing matrix ticks. Reads are allowed before a parallel fork or after its join, not inside computational branches. Input is not automatically echoed to the output transcript; an echo program explicitly calls `putc`:
 
 ```text
 fn main() {
@@ -243,7 +243,7 @@ fn main() {
 }
 ```
 
-`index16(i)` illustrates a checked conversion; neither cast syntax nor the exact `halt` syntax is finalized. I/O routines follow the shared-function calling convention and can be used from regular or recursive functions. Observable effects execute in source order. Ordinary source-level `parallel` blocks should initially reject I/O calls, avoiding ambiguous event order; the compiler can still use parallel register updates internally.
+`index16(i)` illustrates a checked conversion; neither cast syntax nor the exact `halt` syntax is finalized. I/O routines follow the shared-function calling convention and can be used from regular or recursive functions outside computational parallel branches. Observable effects execute in source order. Both atomic parallel-assignment blocks and structured parallel computations reject device I/O, including calls through effectful helpers. Compute independent results in parallel, join, then emit them in source order. Read-only LED observation remains allowed and adds no device instructions.
 
 ## 3. Output register contract
 
@@ -289,6 +289,8 @@ The compiler schedules an output instruction as follows:
 4. Continue execution and ensure the event bit returns to zero unless another event is deliberately being emitted.
 
 The host never clears the emission coordinate. Its matrix row is driven by emission control states, rather than an unconditional self-loop. Payload registers remain valid throughout the observation tick. The instruction may need multiple preparation phases; this is not a fixed four-update encoding.
+
+The educational debugger may pause before ReLU or after ReLU but before commit. Those views do not emit characters/pixels, consume input, or trigger end. Display candidate gates as previews, and perform their effects only when the complete update commits. Reserve an input packet for a pending preview without consuming it until commit; see [DEBUGGER.md](DEBUGGER.md).
 
 Repeated debugger inspection of the same tick must not append another character. The runtime should centralize observation in the step operation, using event IDs to avoid duplicate delivery to views. A new run resets the transcript, displayed frame, and tick counter. Rewinding restores presentation state from event history or reconstructs it by replay, rather than emitting duplicate external effects.
 
@@ -439,7 +441,7 @@ Input ports are not arbitrary writes into the program state. The runtime supplie
 
 The host must not take an ordinary zero-input step past a pending, undelivered read. This contract makes suspension a precise input boundary. It also prevents a request from being skipped when the engine executes batches of updates.
 
-There is at most one outstanding request in the current sequential language. Recursion does not change this: suspended callers remain in their frames while the active call reads. A blocked read pauses screen computation as well; independent background animation would require a later concurrency or nonblocking-input design.
+There is at most one outstanding request under the initial effect rules. Structured parallel computations are supported, but console reads/writes and screen emissions are rejected transitively inside their branches. A read therefore occurs before a fork or after a join, without sibling computations running concurrently. Recursion does not change this: suspended callers remain in their frames while the active call reads. Background animation during a blocked read would require a later concurrent-I/O or nonblocking-input extension, not just computational fork/join.
 
 ### Browser input behavior
 
@@ -472,6 +474,7 @@ When the compiler/runtime is implemented, meaningful behavioral checks include:
 - Changing any payload coordinate while emission is zero leaves the screen unchanged.
 - Consecutive nonzero emission ticks produce distinct pixel events, and repeated writes to one pixel preserve source order.
 - Ordinary and recursive callers preserve call/return behavior across multi-update I/O routines.
+- Parallel branches reject direct and indirect device calls, while sequential I/O after a join receives both completed results in declaration order.
 - End values of 1, 2, and the unsigned maximum all stop execution; zero alone permits continuing.
 - No batch runs an additional matrix update after end is observed, and an initially nonzero end stops before the first update.
 - A final console/pixel event is delivered once if committed with end; a simultaneous read request consumes no input.

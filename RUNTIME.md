@@ -83,6 +83,8 @@ This gives a checked, partial recurrence: every successful step equals exact int
 
 Keep parsing, type checking, source maps, and application coordination in TypeScript. Run the repeated sparse matrix-vector multiply, input addition, ReLU, and range checks inside WebAssembly.
 
+Educational phase inspection is required in both runtimes, as specified in [DEBUGGER.md](DEBUGGER.md). Expose the exact signed row vector before ReLU and the rectified candidate before narrowing/commit. Debug mode separates multiplication, rectification/validation, and commit; fast mode may fuse loops while preserving the same committed behavior. Keep pending raw/candidate buffers outside the mathematical state vector, so the inspector adds no matrix coordinates.
+
 The proposed first backend uses compressed sparse rows:
 
 ```text
@@ -106,6 +108,12 @@ For each row, the executor:
 4. Checks the unsigned 32-bit upper limit and stores the candidate value only if valid.
 
 The current buffer is read-only during the update. The next buffer is separate, preserving simultaneous assignment. A dense reference or alternative kernel is possible, but sparsity is the expected fit for compiled control and register operations.
+
+A phase-stepped update binds the old state and any reserved input packet until commit or cancellation. Negative preactivations and overflowing candidates remain inspectable without unsigned truncation. No preview advances the committed tick, emits an output event, or consumes input. An overflow report retains its raw/candidate evidence alongside the last valid state. The browser's weighted-term explanation is computed from the same captured artifact/state/input as the executor.
+
+Structured parallel branches occupy separate state/control regions of this same artifact. Each successful global update advances all active contexts. Branch-local completion, holding finished state, and joins are encoded in matrix circuitry; the host does not run branch functions directly or omit selected rows. A scalar WASM implementation may evaluate those rows one after another internally, but all read the same old state and commit together. Hardware threads and SIMD are optional performance optimizations, not the definition of language parallelism.
+
+If one branch causes a numeric fault, the existing atomic-update rule applies to the entire candidate state. Completed branches must have safe holding circuitry so subsequent sibling work neither changes their results nor produces spurious faults. A local done flag is not the global end gate; the parent resumes only after the matrix join completes.
 
 For `N` coordinates, each state buffer occupies `4*N` bytes. The display's six-coordinate output port occupies 24 bytes within one buffer, excluding helper state. Its retained 16-by-16 image lives in separate host/device memory and is not part of the recurrence. The matrix stores no implicit per-pixel framebuffer.
 
@@ -135,7 +143,7 @@ Other candidates include specializing coefficient-one rows, precomputing row met
 
 ## 5. Consequences for existing designs
 
-- Regular shared functions and bounded recursive frames still work. Local values use 32-bit state and overflow checks.
+- Regular functions share their body across sequential call sites within a context. Concurrent contexts have distinct mutable banks and may replicate function circuitry. Recursive computations in concurrent contexts have separate bounded stacks. Local values use 32-bit state and overflow checks.
 - A single register can no longer represent an unbounded stack. Moving to 64 bits would increase its finite capacity, not restore unbounded storage.
 - `bit`, Unicode scalar, coordinate, and RGB ranges fit comfortably within the state width.
 - The original Python primality example remains an arbitrary-precision reference. A port must constrain its input/state and preserve the bound's host-side computation without 32-bit truncation.
@@ -146,7 +154,9 @@ Other candidates include specializing coefficient-one rows, precomputing row met
 
 Before performance work, compare a backend with an exact reference evaluator on state transitions, terminal/fault behavior, and I/O event sequences. Include cancellation across large terms, the unsigned maximum, negative sums, overflowing results, signed weight interpretation, and rejected accumulator bounds.
 
-Then benchmark representative programs: arithmetic/control-heavy loops, shared calls, recursive frames, pixel updates, and drawing plus I/O. Include small and larger sparse matrices, warm up the execution engine, and separate initialization/compilation from steady-state execution and UI painting.
+Also compare exact pre-ReLU vectors, rectified candidates, and phase-stepped versus batch execution. Enabling debug history or switching inspection focus between parallel branches must change neither the recurrence nor event/input delivery semantics.
+
+Then benchmark representative programs: arithmetic/control-heavy loops, shared calls, parallel computations with unequal completion times, recursive frames, pixel updates, and drawing plus I/O. Report parallel replication/memory costs alongside global update counts and wall-clock time. Include small and larger sparse matrices, warm up the execution engine, and separate initialization/compilation from steady-state execution and UI painting.
 
 A 32-bit versus 64-bit comparison must state the coefficient widths, state ranges, exactness guarantees, and overflow policy of both profiles. Wrapping 64-bit accumulation is not a valid performance stand-in for a checked full-range 64-bit backend.
 

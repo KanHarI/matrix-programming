@@ -13,7 +13,11 @@ The function design has these requirements:
 - Function bodies can be shared across multiple call sites for size efficiency.
 - Regular functions do not support direct or indirect recursion.
 - Recursive functions can be added as a distinct, explicitly declared category.
-- Both regular and recursive functions compile their bodies once; recursion changes invocation storage, not the requirement to share code.
+- Both regular and recursive functions share compiled bodies across sequential call sites. Concurrent execution contexts have separate state and may require separate matrix circuitry; sharing is defined per context as described below.
+
+Structured parallel computation is a first-class language feature. Independent branches advance within the same matrix recurrence and join before their caller continues. It is distinct from atomic parallel assignment and is part of the initial compiler architecture, not a deferred concurrency feature.
+
+Education is the primary product goal. The browser must expose each update's input state, exact signed multiplication result before ReLU, rectified candidate, and committed next state, with row-level explanations and source/parallel-context tracking. This is a first-demo requirement. [DEBUGGER.md](DEBUGGER.md) defines phase stepping, history, and the distinction between previews and committed I/O effects.
 
 Stored program numbers are 32-bit, as confirmed in the runtime discussion. I/O capabilities are independently optional: console output, console input, and the 16-by-16 RGB screen. Disabled or unused devices add no coordinates, matrix entries, or device-specific control states. A pure parity checker receives initial arguments and returns its result without linking any peripheral. See [IO.md](IO.md) for the capability toggles and linking contract.
 
@@ -125,6 +129,57 @@ parallel {
 This swaps `a` and `b`. Sequential statements outside a parallel block execute in source order. Registers omitted from an instruction should retain their values by default; the compiler must generate the required retention behavior.
 
 Assignment syntax (`=`, `<-`, or another form) has not been finalized. A source-level parallel block may require multiple physical updates while still behaving atomically at instruction boundaries.
+
+### Structured parallel computation
+
+Independent computations can run concurrently and join their results:
+
+```text
+let (a, b) = parallel {
+    compute_a(x),
+    compute_b(y)
+};
+
+// Both results are available here, in declaration order.
+```
+
+This is illustrative syntax for a parallel expression with comma-separated branches, distinct from the statement form `parallel { a <- b; b <- a; }` that performs atomic assignments. The initial grammar must distinguish the two forms unambiguously. Join-result destructuring is part of this feature; it does not require general tuple-valued functions or heap objects.
+
+Each branch may perform multiple instructions, call regular functions, and run loops. After recursive functions are implemented, a branch may also call them under the bounded-stack rules. Parallelism is not limited to evaluating several affine expressions in one update.
+
+The execution contract is:
+
+1. Capture branch inputs by value from the parent's fork state. Input preparation may take several updates. Activate all branches only after preparation completes.
+2. Give each branch its own execution context: mutable locals, control state, intermediate values, result storage, and a local completion flag. Shared immutable constants are allowed; writes to another branch's or the suspended parent's mutable registers are not.
+3. Suspend the parent continuation. Each global matrix update advances every active branch's current phase. There is no implicit run-one-branch-to-completion scheduler.
+4. On branch completion, latch its result and local completion flag. Its arithmetic/control state must subsequently hold safely until the join. Finishing early must not repeat work, overwrite its result, or raise the program's global end gate.
+5. When all local completion flags are set, transfer results to the parent in source order and activate its continuation exactly once. The next group invocation reinitializes all branch locals, completion flags, and phase state before activation.
+
+Completion is independent of the returned value: a branch returning zero is still complete. A branch that does not terminate keeps the join pending, subject to normal host cancellation/update budgets. A runtime fault in any branch stops the whole run using the existing atomic-update fault contract; no partial state from a failed global update is committed.
+
+The global end coordinate is raised only when top-level computation terminates after its required joins. A branch return finishes that invocation, not the whole program. Explicit program-level `halt` or writes to end from a parallel branch are rejected initially, including through called helpers.
+
+### Parallel storage and fixed-matrix compilation
+
+The compiler statically allocates execution contexts and places their state/control circuits in separate regions of one fixed matrix. While independent work runs, the computational blocks have no cross-branch mutable dependencies; fork and join circuitry handles the boundaries. All physical coordinates still update through the same `relu(W*x)` recurrence.
+
+Holding a completed or inactive branch must be implemented in its matrix circuitry. The host does not skip arbitrary branch rows, restore registers, or dispatch source functions in place of the recurrence. Scheduling must also prevent inactive computations from causing spurious overflow. An all-done join is generated from the local Boolean completion coordinates and the parent's join state.
+
+Function sharing applies within each sequential execution context. For two parallel calls to the same function, the baseline compiler provides separate argument/local/control banks and separate function circuitry for the simultaneously active contexts. Sequential call sites within either context still share one body, so replication is per concurrent context, not ordinary call site or loop iteration.
+
+This is a deliberate size tradeoff: true parallel work may increase matrix dimension and nonzero count. Silently serializing both calls through one function bank would not meet the parallel execution contract. The compiler reports context count, per-function instance count, and storage/circuit replication. Later optimizations may share immutable data or reuse contexts whose lifetimes cannot overlap.
+
+Parallel groups have a statically bounded number of branches. Loops reuse the same group after each join, and nonrecursive nested groups are allocated from a finite compile-time context structure. Recursively spawning more parallel groups is rejected initially, including indirect spawn cycles; recursive computation within an already allocated branch remains supported once recursion is implemented. Dynamic task creation and thread-style shared mutable memory are later extensions.
+
+If a context uses recursion, its active stack and return information are separate from other concurrently active contexts. The stack capacity is applied per context, and the compiler reports the resulting total storage requirement. A program without parallel constructs does not acquire unused branch banks or join controls.
+
+### Effects and parallel branches
+
+The first parallel feature allows independent computation, with device I/O before the fork or after the join. Console reads/writes, screen emissions, and global halt are rejected transitively inside branches. The compiler computes effect summaries through the call graph, including recursive cycles, so an indirectly called effectful helper cannot bypass the rule. Local mutation and ordinary function returns are permitted.
+
+An LED may still observe any branch register: it is read-only host metadata, not a branch I/O instruction. Device-free parallel programs allocate no console/screen ports.
+
+Concurrent access to one console stream or six-coordinate pixel port would require ownership, arbitration, and event-order rules. Those are deferred separately from computational parallelism. Logical parallel execution also does not promise hardware threads or a particular speedup: an initial scalar WASM kernel may evaluate rows serially while preserving simultaneous matrix-update semantics.
 
 ### Predicates and Boolean operations
 
@@ -245,11 +300,11 @@ fn remainder(n: nat, d: nat) -> nat {
 
 This example requires `d > 0`; precondition syntax is a future design choice.
 
-Proposed function semantics are eager argument evaluation, pass-by-value parameters, private local variables, local mutation, and one returned value. Tuples can be added later. Pass-by-value is a semantic guarantee; its physical implementation may need multiple matrix updates.
+Proposed function semantics are eager argument evaluation, pass-by-value parameters, private local variables, local mutation, and one returned value. General tuple-valued functions can be added later; destructuring the fixed set of parallel-join results is supported by the core parallel feature. Pass-by-value is a semantic guarantee; its physical implementation may need multiple matrix updates.
 
 ### Shared regular-function calling convention
 
-A regular function is compiled once and reused by its call sites:
+A regular function is compiled once per sequential execution context and reused by its call sites in that context:
 
 ```text
 let a = square(3);    // call site A
@@ -276,7 +331,7 @@ The full arrangement is encoded in one fixed matrix; calls do not modify the mat
 
 If a body costs `F` registers/control states, has `k` call sites, and each site's call/return machinery costs roughly `C`, inlining contributes approximately `k*F`, while sharing contributes approximately `F + k*C`, plus shared working storage. This is a schematic state-size comparison, not an exact matrix-entry count; a dense matrix's storage grows quadratically with its dimension.
 
-For synchronous, sequential execution without reentry, each regular function can use statically allocated argument, local, result, and return-location registers. Nested calls to other regular functions do not require a stack: each function has its own storage. Concurrent invocations are outside the current design.
+Within one synchronous execution context without reentry, each regular function can use statically allocated argument, local, result, and return-location registers. Nested calls to other regular functions do not require a stack: each function has its own storage. Structured parallel calls use separate contexts with distinct function instances when execution can overlap, as specified above. They do not weaken the prohibition on regular-function recursion.
 
 Inlining remains an optional optimization. A call inside a loop reuses its compiled code on each iteration under either strategy; source expansion does not mean runtime duplication per iteration.
 
@@ -301,13 +356,15 @@ The multiplication in these examples is a compiled arithmetic routine.
 
 | Property | `fn` | `rec fn` |
 | --- | --- | --- |
-| Compiled body | Shared across calls | Shared across calls |
-| Invocation storage | Static registers | A frame for each active invocation |
-| Return location | One saved location per function | Saved in each frame |
+| Compiled body | Shared across sequential calls within a context | Shared across calls within a context |
+| Invocation storage | Static registers per function/context | A frame for each active invocation, on the context's stack |
+| Return location | One saved location per function/context | Saved in each frame |
 | Direct or indirect recursion | Rejected | Allowed |
 | Stack requirement | None under the sequential calling convention | Required in general |
 
 Before a recursive call, the compiler preserves the return location, live locals, and any intermediate values needed after the call. Return restores that invocation's state.
+
+Recursion depth does not replicate a function body within a context. Separate parallel contexts may replicate that body's circuitry and each have their own bounded stack. A recursive helper performing I/O may be used sequentially, but is rejected inside a computational parallel branch by the transitive effect rule.
 
 ### Call-graph rule
 
@@ -397,8 +454,9 @@ Source text
   -> Chevrotain lexer and parser
   -> concrete syntax tree
   -> visitor producing a typed abstract syntax tree
-  -> name resolution, type checking, and call-graph validation
-  -> shared function lowering and calling conventions
+  -> name resolution, type/effect checking, and call-graph validation
+  -> parallel context planning and fork/join lowering
+  -> shared function instances per context and calling conventions
   -> optional small-function inlining
   -> reachable device dependencies and optional device linking
   -> explicit control states and register operations
@@ -406,19 +464,23 @@ Source text
   -> fixed matrix, initial-state layout, and source map
 ```
 
-The compiler should retain source locations, function identities, call sites, instruction boundaries, and register meanings. The browser can then display:
+The compiler should retain source locations, function identities, call sites, parallel context/group identities, instruction boundaries, and register meanings. There may be several active source locations at once. The browser can then display:
 
 - The source instruction currently executing.
 - Matrix coordinates and their named registers.
 - Control states, condition signals, and counter values.
 - Arguments and locals for the active function.
+- Concurrent branch states, completed results, and the parent waiting at a join.
 - Recursive stack frames and return locations.
 - Single matrix updates as well as instruction-level stepping.
+- Separate multiplication, pre-ReLU, post-ReLU, and commit views, with exact per-row weighted-term explanations.
 - Step-into and step-over behavior for function calls.
 - Terminal results, execution-budget exhaustion, and stack overflow.
 - Console character input/output, pending reads, pixel emissions, and the retained 16-by-16 RGB screen image, as specified in [IO.md](IO.md).
 
 These are intended capabilities, not implemented features. Shared bodies require execution context in addition to a static source map to identify the current caller.
+
+The educational phase inspector is required in the first browser demo and in both reference and WASM runtimes. Its scratch/trace memory does not enlarge the matrix. Negative preactivations and out-of-range candidates must remain inspectable before clipping/narrowing, and previewing a device flag must not trigger its side effect.
 
 ## 8. Motivating example: primality by ReLU
 
@@ -595,7 +657,7 @@ The detailed plan and milestone completion criteria are in [IMPLEMENTATION_PLAN.
 
 1. Define the sparse artifact and an exact reference executor with checked 32-bit state and end detection.
 2. Validate primitive matrix lowering, then parse/compile and visualize a device-free parity program.
-3. Implement shared, nonrecursive functions with static invocation storage.
+3. Implement shared, nonrecursive functions plus structured parallel calls, separate execution contexts, and joins.
 4. Link optional console input/output and the six-coordinate pixel port with no unused-device overhead.
 5. Implement a WebAssembly executor and compare its full state/event traces against the reference backend.
 6. Add explicitly recursive functions with bounded matrix-implemented frames and stack overflow handling.
