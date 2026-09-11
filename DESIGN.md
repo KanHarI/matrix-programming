@@ -15,6 +15,8 @@ The function design has these requirements:
 - Recursive functions can be added as a distinct, explicitly declared category.
 - Both regular and recursive functions compile their bodies once; recursion changes invocation storage, not the requirement to share code.
 
+Stored program numbers are 32-bit, as confirmed in the runtime discussion. I/O capabilities are independently optional: console output, console input, and the 16-by-16 RGB screen. Disabled or unused devices add no coordinates, matrix entries, or device-specific control states. A pure parity checker receives initial arguments and returns its result without linking any peripheral. See [IO.md](IO.md) for the capability toggles and linking contract.
+
 Earlier discussion considered inlining all functions as a simple first compiler strategy. The subsequent requirement for size efficiency makes shared bodies the default design direction. Inlining remains a possible optimization for small functions.
 
 ## 2. Execution model
@@ -391,6 +393,7 @@ Source text
   -> name resolution, type checking, and call-graph validation
   -> shared function lowering and calling conventions
   -> optional small-function inlining
+  -> reachable device dependencies and optional device linking
   -> explicit control states and register operations
   -> matrix scheduling and register allocation
   -> fixed matrix, initial-state layout, and source map

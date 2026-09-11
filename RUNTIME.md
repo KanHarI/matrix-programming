@@ -1,6 +1,6 @@
 # Numeric Model and WebAssembly Runtime
 
-This document records the proposed fixed-width runtime. The language and backend are not implemented, and no performance measurements have been made yet.
+This document records the fixed-width runtime design. The user has confirmed 32-bit stored program numbers. The language and backend are not implemented, and no performance measurements have been made yet.
 
 ## 1. Initial choice: 32-bit storage, 64-bit accumulation
 
@@ -18,7 +18,7 @@ The 64-bit accumulator is implementation machinery, not a user-visible 64-bit va
 
 This interprets the requested numeric limit as a limit on stored program values. It does not require every intermediate CPU instruction to use the same width.
 
-Use 32-bit state as the initial engineering choice, and benchmark before claiming a speed advantage. A 64-bit profile remains a possible later extension if its range is useful and its measured cost is acceptable. It must have explicit arithmetic semantics rather than merely changing a typed-array declaration.
+Use 32-bit state as the agreed numeric model, and benchmark before claiming a speed advantage. There is no automatic switch of source numeric semantics based on the host CPU. Any future 64-bit profile would be an explicit language extension with separate semantics, not merely a changed typed-array declaration.
 
 ## 2. Why 64-bit state is not automatically free
 
@@ -96,6 +96,8 @@ state_next: u32[]
 
 The input matrix can use a separate small structure or equivalent fixed input-column encoding. Its contributions participate in the same complete row sum before ReLU.
 
+Device dependencies are resolved before allocating these structures. Disabled or unused capabilities contribute no rows, columns, nonzero entries, or device-specific state/control storage. Omit `B` entirely when console input is absent. The runtime uses the optional device manifest to choose observation/input handling; a pure program needs no peripheral polling or universal I/O wrapper. Details and interface sizes are in [IO.md](IO.md).
+
 For each row, the executor:
 
 1. Sign-extends each coefficient to `i64` and zero-extends its state value to `i64` before multiplication.
@@ -148,4 +150,4 @@ A 32-bit versus 64-bit comparison must state the coefficient widths, state range
 
 Report committed updates per second, memory use, event overhead, and end-to-end responsiveness on representative browser/CPU combinations. Compare scalar and SIMD only where each preserves the same semantics. A small arithmetic microbenchmark cannot settle the full-runtime choice.
 
-The current recommendation is 32-bit storage with native 64-bit accumulation. Revisit it if measured application workloads show that a correctly specified 64-bit profile offers useful range at negligible cost. No such comparison has been performed yet.
+The agreed design is 32-bit storage with native 64-bit accumulation. Benchmarks guide backend optimizations; a future numeric-width extension would require a separate decision. No 32-bit versus 64-bit runtime comparison has been performed yet.

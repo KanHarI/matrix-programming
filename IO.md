@@ -14,7 +14,7 @@ The matrix owns the output registers and the framebuffer. After each completed m
 
 Interactive reads use the explicit input extension `x_next = relu(W*x + B*u)` described in Section 7. Both matrices remain fixed; only designated input ports receive external values. Output is deterministic given the initial state and recorded input deliveries. Real-time animation speed is a host scheduling choice, not part of program arithmetic.
 
-There are two devices:
+There are two user-facing devices, with the console split into independently selectable input and output capabilities:
 
 | Device | Matrix-owned state | Host action |
 | --- | --- | --- |
@@ -22,6 +22,78 @@ There are two devices:
 | Display | 768 color channels and a presentation bit | Snapshot and display a complete frame when an event occurs |
 
 The browser's displayed image and accumulated console transcript are presentation state outside the machine. The authoritative drawing buffer remains inside the state vector.
+
+### Optional devices: no reserved hardware
+
+Every device capability is optional at compile time. The compiler does not reserve a universal I/O area, a device bus, a global device-enable vector, or placeholder rows/columns. A disabled or unused device contributes **zero coordinates, zero matrix entries, and zero device-specific control states**.
+
+The initial capabilities and standard interface sizes are:
+
+| Capability | Source operations | Device-state coordinates when linked |
+| --- | --- | --- |
+| `console.output` | `putc`, literal `write`/`println`, `print_nat` | 2: character payload and emission bit |
+| `console.input` | `readc` | 4: request bit, available bit, EOF bit, character latch |
+| `screen.rgb16` | `set_pixel`, `present`, drawing helpers | 769: 768 RGB channels and presentation bit |
+| None | Initial arguments and final program result only | 0 device coordinates |
+
+These are interface sizes, not total compiler overhead. An included capability also needs the reachable routines, phase controls, arguments, and temporaries that implement its operations. That additional machinery must also disappear when the capability is absent. Console input does not pull in output, and console output does not pull in input. The screen requires neither.
+
+The existing full-interface count remains `2 + 4 + 769 = 775` words. Each interface word uses the agreed 32-bit state representation, including channels constrained to `0..255`. Sparse matrix indices and compiler/runtime metadata are not counted as state coordinates.
+
+### Enablement and linking
+
+Expose independent build-time toggles in the web page or compiler options. An illustrative configuration is:
+
+```ts
+const devices = {
+  consoleOutput: false,
+  consoleInput: false,
+  rgb16Display: false,
+};
+```
+
+All capabilities default to disabled. Enabling one permits source code to use it; it does not allocate that device when the program never references it through reachable code.
+
+The compiler performs reachability analysis from the program entry point, follows ordinary and recursive calls, and links only the device operations that remain reachable. Merely importing a library with unused printing or drawing functions must not allocate their devices. The guarantee concerns unused reachable-code dependencies, not general proof that a dynamically controlled branch can never execute.
+
+A reachable call to a disabled capability is a compile-time error identifying the call and required toggle. The compiler must not silently delete that effect or implicitly enable other devices. An enabled but unused capability is omitted and reported as unused. Compiler reports should distinguish allowed capabilities from those actually linked into the matrix.
+
+Changing a device toggle changes compilation configuration. Recompile and start a new run; do not resize or modify `W` during an existing run. Hiding a console/display panel is a separate UI action that does not disable the device or shrink the matrix. Checkpoints and traces must identify the compiled artifact and its linked device layout.
+
+### Minimal programs and final results
+
+A parity checker can receive its number as an initial argument and expose its answer through its normal return value:
+
+```text
+fn main(n: nat) -> bit {
+    let remainder = n;
+    while remainder >= 2 {
+        remainder = remainder - 2;
+    }
+    return equal(remainder, 0);
+}
+```
+
+This illustrative program needs no I/O capabilities. Its input is placed in an ordinary argument register before execution. Its answer is read from the ordinary result register after termination; a host UI may display that value without the program printing a character.
+
+Arguments, result registers, and the program's own termination/control state are part of its computation, not a peripheral ABI. The compiler should reuse/map ordinary registers where valid, rather than adding a universal device wrapper to every program.
+
+For such a program, execution is simply `relu(W*x)`. There is no input matrix `B` to allocate, no input packet/latches, no event bits, and no framebuffer. Debugger labels, register inspection, and host-side result display are metadata/observation features and do not require device coordinates.
+
+### Compilation contract
+
+Determine device dependencies before device-register allocation and matrix emission:
+
+```text
+entry-point reachability
+  -> required device operations
+  -> validate against enabled capabilities
+  -> link only required routines and device state
+  -> schedule and allocate the compact state vector
+  -> emit W, optional B, and optional device metadata
+```
+
+Only console input currently requires `B`; output-only or device-free artifacts omit it. A runtime may share host code across device combinations, but it must dispatch from metadata without allocating absent ports inside the machine. A device-free execution path needs no per-tick peripheral polling. There is no fixed gap in register numbering where an excluded device would have been.
 
 ## 2. Source-language API
 
@@ -139,9 +211,9 @@ The compiler exports a device manifest giving the coordinate indices and framebu
 | `io.screen.rgb[0..767]` | `u8` | Persistent drawing buffer |
 | `io.screen.present` | `bit` | Present the buffer at this completed update |
 
-These are 771 device-state coordinates. This count excludes control states, argument registers, constants, runtime errors, and the temporary coordinates needed to implement operations. The display is optional: programs that do not use it need not reserve its buffer.
+If both console output and the screen are linked, these are 771 device-state coordinates. This count excludes control states, argument registers, constants, runtime errors, and the temporary coordinates needed to implement operations. The groups are independently optional; neither reserves space in artifacts that omit it.
 
-Console input adds a `read_request` output bit and three input-latch coordinates (`available`, `eof`, and `codepoint`), bringing the full device-state interface to 775 coordinates before compiler working storage. Programs that do not read input can omit those four coordinates. The input vector itself is external to this count.
+Console input adds a `read_request` output bit and three input-latch coordinates (`available`, `eof`, and `codepoint`), bringing the full device-state interface to 775 coordinates before compiler working storage when all three capabilities are linked. A program that only reads characters needs those four interface coordinates, without the console-output pair or screen. The input vector itself is external to this count.
 
 The proposed channel layout is row-major, interleaved RGB:
 
@@ -238,10 +310,12 @@ The matrix remains fixed-size for a compiled program, but a dense representation
 The compiler emits metadata rather than making the browser guess coordinate meanings:
 
 ```ts
-interface OutputLayout {
+interface IOLayout {
   console?: {
-    codepoint: number;
-    emit: number;
+    output?: {
+      codepoint: number;
+      emit: number;
+    };
     input?: {
       readRequest: number;
       available: number;
@@ -258,11 +332,13 @@ interface OutputLayout {
 }
 ```
 
+Absent capabilities have absent manifest entries, not zero-filled device registers. The `console` object is omitted when neither direction is linked. A device-free artifact can omit I/O metadata altogether; initial argument and final result locations remain in the normal program interface. This shape permits input-only programs without implicitly allocating console output.
+
 Register indices and dimensions are ordinary host numbers. Machine state uses unsigned 32-bit words, exposed through a `Uint32Array` view of WebAssembly memory. Stored values are exactly representable as JavaScript numbers; general weighted sums must use the checked accumulation model in [RUNTIME.md](RUNTIME.md). The host still validates character and color ranges before rendering.
 
 The production loop may execute inside WebAssembly and return batched event records. It must inspect each completed update internally and stop at input boundaries; batching does not permit skipping event observation.
 
-Conceptually, the step loop is:
+For an artifact with all three capabilities, the conceptual step loop is:
 
 ```text
 input = delivery_for_pending_read_or_zero()
@@ -377,3 +453,12 @@ When the compiler/runtime is implemented, meaningful behavioral checks include:
 - For a given initial state and input delivery sequence, batching and browser paint rate do not change the logical output sequence.
 
 These are acceptance criteria, not tests claimed to exist or pass. The range-gated replacement formulas and event lifecycle should be validated before optimizing their matrix implementation.
+
+Device-linking acceptance criteria additionally include:
+
+- Compiling the same device-free parity checker with all toggles off or with unused capabilities enabled yields the same machine state layout and recurrence, apart from non-executable build metadata.
+- Uncalled library functions containing I/O do not increase its matrix dimension or nonzero count.
+- An input-only program has no output emission/payload pair; an output-only program has no read request, input latches, or `B`.
+- A program without the screen has no RGB coordinates, pixel decoder, display-specific phases, or presentation bit.
+- Calling a disabled device reports a compile-time error instead of silently omitting the operation or enabling hardware.
+- All eight combinations of the three capabilities produce manifests and runtimes consistent with their actual reachable device usage.
