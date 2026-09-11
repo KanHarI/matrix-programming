@@ -41,7 +41,7 @@ next_d = relu(d + 2*i + 2*a - 2*b + k)
 
 is one row of a matrix program.
 
-This is a hand-compiled recurrent network, with no training required. A fixed matrix size does not imply a fixed execution duration. With exact, unbounded integer coordinates, it also does not imply a fixed information capacity.
+This is a hand-compiled recurrent network, with no training required. A fixed matrix size does not imply a fixed execution duration. Earlier discussion considered exact, unbounded integer coordinates, which could encode unbounded information. The current runtime target instead uses 32-bit state, so a fixed vector has finite information capacity. See [RUNTIME.md](RUNTIME.md) for the numeric rules and WebAssembly execution proposal.
 
 ### Matrix updates versus instructions
 
@@ -64,7 +64,7 @@ An affine expression such as `3*a - 2*b + 7` then uses a coefficient of `7` on `
 
 ### Registers and types
 
-Initial types should include nonnegative integers and Boolean bits:
+Initial types include nonnegative integers and Boolean bits. `nat` now means an unsigned 32-bit value in `0..4,294,967,295`; it does not promise arbitrary precision:
 
 ```text
 nat n
@@ -81,7 +81,7 @@ nat<100> counter
 
 The exact bound syntax and whether bounds are inclusive remain unspecified. Known bounds can make comparisons and conditional transfers more efficient.
 
-Signed integers could be represented by two nonnegative coordinates, with the logical value `positive - negative`. Signed arithmetic is an extension, not a settled initial feature.
+Signed integers could be represented by two nonnegative coordinates, with the logical value `positive - negative`. A future signed source type would need its own declared range and overflow checks. Signed arithmetic is an extension, not a settled initial feature. Matrix coefficients are signed 32-bit integers, while row accumulation uses internal signed 64-bit arithmetic with verified bounds. Positive results exceeding the state range fault; negative row results still become zero through ReLU.
 
 ### Affine expressions and ReLU
 
@@ -169,7 +169,7 @@ branch_zero x, done, continue
 
 Decrement saturates at zero. A bit can enable an increment through `x_next = relu(x + active)`.
 
-Conditional transfer of arbitrary values needs more care. The expression `active * value` multiplies two changing coordinates and is not an affine operation. Known bounds permit compact gating constructions; unbounded values may require multi-step transfer routines. Function calls, stack access, assignments, and branches must respect this limitation.
+Conditional transfer of arbitrary values needs more care. The expression `active * value` multiplies two changing coordinates and is not an affine operation. Known bounds permit compact gating constructions; the full `nat` range may require additional lowering to fit signed coefficient limits. Function calls, stack access, assignments, and branches must respect this limitation. The earlier arbitrary-precision model would additionally have required routines for unbounded transfers.
 
 ### Halt, input, and output
 
@@ -338,6 +338,8 @@ Explicit frames make memory cost and call state visible in the browser. They inc
 
 ### Unbounded stack encoded in integers
 
+This subsection preserves a theoretical alternative discussed before the fixed-width decision. It is not an unbounded-stack option for the current 32-bit runtime: its encoding overflows when the stored value exceeds the register range. The same limitation would apply with 64-bit registers.
+
 With exact unbounded integers, a finite stack of symbols can be stored in one coordinate. Choose base `B`, encode symbols as `1` through `B - 1`, and use zero for empty. The top is the least significant digit.
 
 Push symbol `a`:
@@ -370,13 +372,15 @@ This is an algorithm to compile, not a claim that a full push or pop, including 
 
 The encoding permits arbitrary finite depth in an ideal exact-integer model. It does not provide physically unlimited memory: integer representations grow with the amount stored. The elementary pop routine above can take exponentially many updates in stack depth.
 
-The browser would need exact arithmetic, such as `BigInt`, for this model. JavaScript `number` eventually loses integer precision. Exact integer arithmetic is also relevant to ordinary programs with unbounded `nat` registers.
+The original unbounded model would need arbitrary-precision arithmetic, such as `BigInt`. The current runtime instead stores `nat` values as unsigned 32-bit integers; `BigInt` may still be useful inside a reference evaluator to check exact intermediate sums without becoming a source-language type.
 
-Bounded explicit frames are the proposed first implementation; encoded stacks are a possible later alternative.
+Bounded explicit frames are the proposed implementation. Integer-encoded stacks would also be bounded under the current numeric model and offer no unbounded-capacity guarantee.
 
 ## 7. Parser, compiler, and web visualization
 
 The parser should follow Parsec-style composition in TypeScript. No particular parser library has been selected. Parsing produces syntax; type rules, storage allocation, and calling conventions belong in later compiler stages.
+
+The proposed execution backend is WebAssembly, with sparse matrix storage, double-buffered 32-bit state, and exact bounded 64-bit accumulation. TypeScript retains parsing, compilation coordination, and the web interface. [RUNTIME.md](RUNTIME.md) explains the boundary and performance validation plan; no execution backend has been implemented yet.
 
 The proposed pipeline, updated to reflect shared function bodies, is:
 
@@ -559,6 +563,8 @@ def is_prime_by_relu(n: int) -> tuple[bool, int]:
 
 The object-typed state uses arbitrary-precision Python integer arithmetic. The input check accepts only built-in nonnegative `int` values, excluding Boolean values and NumPy integer scalar types.
 
+This original example is preserved unchanged as a mathematical reference. Porting it to the current runtime requires restricting inputs to the `nat` range and checking all generated state against that range. Its update-bound calculation is host bookkeeping and may exceed 32 bits even when state registers fit.
+
 During the discussion, an exact Python-integer simulation of the supplied rows checked inputs 0 through 50 against trial division, checked the update bound, and checked counter and flag invariants for inputs at least 2. NumPy was unavailable in that verification environment, so this was a simulation of the row recurrence, not execution of the NumPy implementation itself. This finite check supplements the reasoning; it is not the termination proof.
 
 | Input | Prime? | Matrix updates |
@@ -577,12 +583,12 @@ During the discussion, an exact Python-integer simulation of the supplied rows c
 
 A proposed sequence is:
 
-1. Define the initial grammar, `nat`/`bit` semantics, and exact integer runtime.
+1. Define the initial grammar and implement the checked 32-bit `nat`/`bit` model described in [RUNTIME.md](RUNTIME.md).
 2. Parse and type-check registers, expressions, counter operations, and control flow.
-3. Lower instructions to explicit states and compile the fixed matrix with source maps.
+3. Lower instructions to explicit states and compile the fixed matrix with source maps, then validate a WebAssembly executor against an exact reference evaluator.
 4. Implement shared, nonrecursive functions with static invocation storage.
 5. Build browser execution inspection and instruction-level stepping.
 6. Add explicitly recursive functions with bounded stack frames and overflow handling.
-7. Consider optimizations, richer types, and alternative stack encodings.
+7. Benchmark sparse execution and consider optimizations and richer types, including a separately specified 64-bit profile if warranted.
 
 This sequence is a proposal rather than an implementation commitment. Remaining choices include the parser library, concrete syntax, arithmetic algorithms, matrix storage format, transfer and scheduling strategies, invariant checking, frame layout, and visualization framework. No external dependencies or application scaffold have been selected yet.

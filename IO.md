@@ -35,7 +35,7 @@ Use these semantic types; their exact declaration syntax can follow the eventual
 | `u8` | An integer in `0..255` |
 | `index16` | An integer in `0..15` |
 
-All are represented by nonnegative integer coordinates. The `char` restriction excludes surrogate code points; a character here is a scalar value, not necessarily a whole visible grapheme.
+All are represented by unsigned 32-bit integer coordinates under [RUNTIME.md](RUNTIME.md). The `char` restriction excludes surrogate code points; a character here is a scalar value, not necessarily a whole visible grapheme.
 
 Invalid constants are compile-time errors. Converting dynamic natural numbers into these types inserts runtime checks unless the compiler proves the ranges. A failed check enters a defined runtime error state and produces no event or pixel write for that operation. Evaluation and validation finish before an operation commits.
 
@@ -258,7 +258,9 @@ interface OutputLayout {
 }
 ```
 
-Register indices and dimensions are ordinary host numbers. Machine values can be exact integers such as `bigint`. The host converts only validated, bounded character and color values to browser numbers.
+Register indices and dimensions are ordinary host numbers. Machine state uses unsigned 32-bit words, exposed through a `Uint32Array` view of WebAssembly memory. Stored values are exactly representable as JavaScript numbers; general weighted sums must use the checked accumulation model in [RUNTIME.md](RUNTIME.md). The host still validates character and color ranges before rendering.
+
+The production loop may execute inside WebAssembly and return batched event records. It must inspect each completed update internally and stop at input boundaries; batching does not permit skipping event observation.
 
 Conceptually, the step loop is:
 
