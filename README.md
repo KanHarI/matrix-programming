@@ -19,8 +19,10 @@ npm ci
 npm run dev
 ```
 
-Open the local URL printed by Vite. Simple primality runs with input 6 on load.
-Select another example, set its inputs, and compile.
+Open the local URL printed by Vite. Parity loads with input 4, paused at tick zero.
+Selecting another example compiles it automatically. Changing a numeric input
+resets execution to tick zero, paused and ready to step; W is unchanged.
+Source, device, and compiler-option edits require **Compile & reset**.
 **Multiply → Apply ReLU → Commit** advances one phase at a time without producing
 I/O during previews. Full tick completes one matrix update; Run executes bounded
 batches. Select a vector coordinate to inspect its actual weighted source terms.

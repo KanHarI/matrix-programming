@@ -12,8 +12,8 @@ describe('compiled matrix size and feature omission', () => {
   // storage. They were established after removing per-instruction delay banks,
   // threading jumps, coalescing expression copies, and specializing constants.
   it.each([
-    ['parity', 6], ['prime-simple', 242], ['prime-optimized', 446],
-    ['hello', 410], ['greeting', 12_150], ['parallel', 375],
+    ['parity', 6], ['prime-simple', 95], ['prime-optimized', 306],
+    ['hello', 209], ['greeting', 2543], ['parallel', 206],
   ] as const)('%s stays below its %i-coordinate circuit budget', (name, budget) => {
     const source = readFileSync(new URL(`../examples/${name}.matrix`, import.meta.url), 'utf8');
     expect(compile(source).registers.length).toBeLessThanOrEqual(budget);

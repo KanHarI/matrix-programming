@@ -127,8 +127,8 @@ describe('generic temporary-register liveness allocation', () => {
   });
 
   it.each([
-    ['prime-simple', 242, 669, 414],
-    ['prime-optimized', 446, 1269, 819],
+    ['prime-simple', 95, 263, 414],
+    ['prime-optimized', 306, 844, 819],
   ] as const)('keeps %s below its generic allocation circuit budget', (name, rows, entries, previousRows) => {
     const source = readFileSync(new URL(`../examples/${name}.matrix`, import.meta.url), 'utf8');
     const artifact = compile(source);

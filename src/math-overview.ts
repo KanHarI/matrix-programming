@@ -4,8 +4,9 @@ import type { Machine } from './runtime';
 
 type VectorKind = 'current' | 'raw' | 'candidate';
 interface VectorCell { index: number; element: HTMLButtonElement }
-interface RoleCell extends VectorCell { coordinateLabel?: string }
+interface RoleCell extends VectorCell { coordinateLabel?: string; inputHighlight?: boolean }
 interface GateBadge { element: HTMLButtonElement; value: HTMLElement; status: HTMLElement }
+interface StatusIndicator { element: HTMLElement; value: HTMLElement; note: HTMLElement }
 
 /** A compact mathematical view; the detailed inspector remains the source of all rows. */
 export class MathOverview {
@@ -19,13 +20,16 @@ export class MathOverview {
   private scrollHint!: HTMLElement;
   private roleCells: RoleCell[] = [];
   private gateBadges: Partial<Record<'led' | 'end', GateBadge>> = {};
+  private inputNames = new Map<number, string[]>();
+  private inputBadges: { index: number; name: string; element: HTMLButtonElement; value: HTMLElement }[] = [];
+  private indicators!: Record<'running' | 'output', StatusIndicator>;
 
   constructor(private readonly root: HTMLElement, private readonly onSelectRow: (index: number) => void) {
     root.classList.add('math-overview');
     root.setAttribute('aria-label', 'Mathematical matrix and vector overview');
   }
 
-  render(artifact?: Artifact, machine?: Machine, ledEnabled = true): void {
+  render(artifact?: Artifact, machine?: Machine, ledEnabled = true, running = false): void {
     if (!artifact || !machine) {
       this.artifact = undefined;
       this.root.innerHTML = '<p class="math-empty">Compile a program to see its matrix and state vectors.</p>';
@@ -56,16 +60,23 @@ export class MathOverview {
         element.title = `${label}. Click to inspect this row.`;
       }
     }
-    for (const { index, element, coordinateLabel } of this.roleCells) {
+    for (const { index, element, coordinateLabel, inputHighlight } of this.roleCells) {
       const led = ledEnabled && index === artifact.led;
       const end = index === artifact.end;
+      const inputs = this.inputNames.get(index);
+      element.classList.toggle('math-input-coordinate', Boolean(inputs) && Boolean(inputHighlight));
       element.classList.toggle('math-led-coordinate', led);
       element.classList.toggle('math-end-coordinate', end);
       element.dataset.gates = [led ? 'led' : '', end ? 'end' : ''].filter(Boolean).join(' ');
-      const roles = [led ? 'LED indicator coordinate' : '', end ? 'End gate coordinate' : ''].filter(Boolean);
+      const roles = [inputs ? `Initial input coordinate for ${inputs.join(', ')}; its value may evolve during execution` : '', led ? 'LED indicator coordinate' : '', end ? 'End gate coordinate' : ''].filter(Boolean);
       if (roles.length) element.setAttribute('aria-description', roles.join('; '));
       else element.removeAttribute('aria-description');
-      if (coordinateLabel !== undefined) element.textContent = `${coordinateLabel}${led ? ' · LED' : ''}${end ? ' · END' : ''}`;
+      if (coordinateLabel !== undefined) element.textContent = `${coordinateLabel}${inputs ? ` · INPUT ${inputs.join(', ')}` : ''}${led ? ' · LED' : ''}${end ? ' · END' : ''}`;
+    }
+    for (const badge of this.inputBadges) {
+      const value = machine.state[badge.index]!;
+      badge.value.textContent = `xₜ[${badge.index}] = ${value}`;
+      badge.element.setAttribute('aria-label', `Input ${badge.name}; initial input coordinate ${badge.index}, current committed value ${value}. This coordinate may evolve during execution. Inspect coordinate.`);
     }
     for (const kind of ['led', 'end'] as const) {
       const badge = this.gateBadges[kind];
@@ -81,6 +92,19 @@ export class MathOverview {
       badge.element.dataset.active = String(active);
       badge.element.setAttribute('aria-label', `${kind.toUpperCase()} ${badge.status.textContent}; committed coordinate ${index}, ${artifact.registers[index]!.name}, value ${value}. Inspect coordinate.`);
     }
+    const activity = this.indicators.running;
+    const isRunning = running && machine.status === 'ready';
+    activity.element.dataset.active = String(isRunning);
+    activity.value.textContent = machine.status === 'ended' ? 'Ended' : machine.status === 'fault' ? 'Fault' : machine.status === 'waiting' ? 'Waiting for input' : isRunning ? 'Running' : 'Paused';
+    activity.note.textContent = `Tick ${machine.tick.toLocaleString()} · ${machine.status === 'ended' ? 'Execution complete' : machine.status === 'fault' ? 'Execution stopped' : 'Committed updates'}`;
+    const output = this.indicators.output;
+    const linked = ledEnabled && artifact.led !== undefined;
+    const value = linked ? machine.state[artifact.led!]! : undefined;
+    const final = linked && machine.status === 'ended';
+    output.element.dataset.active = String(linked && value !== 0);
+    output.element.dataset.final = String(final);
+    output.value.textContent = linked ? `${value} · ${value !== 0 ? 'ON' : 'OFF'}` : '—';
+    output.note.textContent = !ledEnabled ? 'Result LED disabled' : !linked ? 'No result LED linked' : final ? 'Final output · execution ended' : machine.status === 'fault' ? 'Stopped on fault · not a final result' : 'Current LED · not a final result';
   }
 
   private number(value: number | bigint): string { return String(value).replace('-', '−'); }
@@ -109,12 +133,12 @@ export class MathOverview {
     return bracket;
   }
 
-  private valueButton(row: number, value: string, title: string): HTMLButtonElement {
+  private valueButton(row: number, value: string, title: string, inputHighlight = false): HTMLButtonElement {
     const button = this.element('button', 'math-value', value);
     button.type = 'button';
     button.title = title;
     button.dataset.row = String(row);
-    this.roleCells.push({ index: row, element: button });
+    this.roleCells.push({ index: row, element: button, inputHighlight });
     button.addEventListener('click', () => this.onSelectRow(row));
     return button;
   }
@@ -124,6 +148,12 @@ export class MathOverview {
     this.vectorCells = { current: [], raw: [], candidate: [] };
     this.roleCells = [];
     this.gateBadges = {};
+    this.inputBadges = [];
+    this.inputNames = new Map();
+    for (const [name, index] of Object.entries(artifact.inputs)) {
+      const names = this.inputNames.get(index) ?? [];
+      names.push(name); this.inputNames.set(index, names);
+    }
     this.root.replaceChildren();
     const n = artifact.rows.length;
     const count = Math.min(n, 8);
@@ -141,7 +171,19 @@ export class MathOverview {
     this.root.append(formula);
 
     const gates = this.element('div', 'math-gates');
-    gates.setAttribute('aria-label', 'Output gates, using committed state only');
+    gates.setAttribute('aria-label', 'Input coordinates and output gates, using committed state only');
+    for (const [name, index] of Object.entries(artifact.inputs)) {
+      const badge = this.element('button', 'math-gate-badge math-input-badge');
+      badge.type = 'button';
+      badge.dataset.input = name;
+      badge.dataset.row = String(index);
+      badge.title = `${name} initializes coordinate ${index}: ${artifact.registers[index]!.name}. The displayed value is committed xₜ and may change during execution. Click to inspect.`;
+      const value = this.element('span', 'math-gate-value');
+      badge.append(this.element('span', 'math-gate-name', `INPUT ${name}`), value);
+      badge.addEventListener('click', () => this.onSelectRow(index));
+      gates.append(badge);
+      this.inputBadges.push({ index, name, element: badge, value });
+    }
     for (const kind of ['led', 'end'] as const) {
       const index = kind === 'end' ? artifact.end : artifact.led;
       if (index === undefined) continue;
@@ -199,7 +241,7 @@ export class MathOverview {
       const bracket = this.bracket(1, `${kind === 'current' ? 'Current' : kind === 'raw' ? 'Before ReLU' : 'After ReLU'} vector${excerpt ? ', first 8 coordinates' : ', complete'}`);
       const values = bracket.firstElementChild!;
       for (let index = 0; index < count; index++) {
-        const cell = this.valueButton(index, '—', artifact.registers[index]!.name);
+        const cell = this.valueButton(index, '—', artifact.registers[index]!.name, kind === 'current');
         values.append(cell);
         this.vectorCells[kind].push({ index, element: cell });
       }
@@ -221,7 +263,25 @@ export class MathOverview {
       }
     }
     scroll.append(objects);
-    this.root.append(scroll);
+    const stage = this.element('div', 'math-stage-layout');
+    const statusPanel = this.element('aside', 'math-status-panel');
+    statusPanel.setAttribute('aria-label', 'Execution and output indicators');
+    this.indicators = {} as Record<'running' | 'output', StatusIndicator>;
+    for (const kind of ['running', 'output'] as const) {
+      const indicator = this.element('section', `math-indicator math-${kind}-indicator`);
+      indicator.dataset.indicator = kind;
+      indicator.setAttribute('aria-label', kind === 'running' ? 'Running indicator' : 'Output indicator');
+      const heading = this.element('div', 'math-indicator-heading');
+      const dot = this.element('span', 'math-indicator-dot'); dot.setAttribute('aria-hidden', 'true');
+      heading.append(dot, this.element('span', '', kind === 'running' ? 'Running' : 'Output'));
+      const value = this.element('strong', 'math-indicator-value');
+      const note = this.element('span', 'math-indicator-note');
+      indicator.append(heading, value, note);
+      statusPanel.append(indicator);
+      this.indicators[kind] = { element: indicator, value, note };
+    }
+    stage.append(scroll, statusPanel);
+    this.root.append(stage);
     this.scrollHint = this.element('p', 'math-scroll-hint', 'Scroll horizontally to see all four objects →');
     this.root.append(this.scrollHint);
 

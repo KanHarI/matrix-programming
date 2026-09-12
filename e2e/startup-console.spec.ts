@@ -1,13 +1,18 @@
 import { expect, test } from '@playwright/test';
 
-test('page load runs simple primality for six and omits the removed parity preset', async ({ page }) => {
+test('page load prepares parity for four without starting execution', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('#backend')).toContainText('WASM');
-  await expect(page.locator('#example')).toHaveValue('prime-simple');
-  await expect(page.locator('[data-parameter="n"]')).toHaveValue('6');
-  await expect(page.locator('#status')).toHaveText('Ended');
+  await expect(page.locator('#example')).toHaveValue('parity');
+  await expect(page.locator('[data-parameter="n"]')).toHaveValue('4');
+  await expect(page.locator('#status')).toHaveText('Paused');
+  await expect(page.locator('#tick')).toHaveText('0');
   await expect(page.locator('#led-text')).toContainText('off (0)');
-  await expect(page.locator('#end-text')).toHaveText('End gate: 1');
+  await expect(page.locator('#end-text')).toHaveText('End gate: 0');
+  for (const selector of ['#phase-step', '#step', '#run']) await expect(page.locator(selector)).toBeEnabled();
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  await expect(page.locator('#tick')).toHaveText('0');
+  await expect(page.locator('[data-indicator="running"] .math-indicator-value')).toHaveText('Paused');
   expect(await page.locator('#example option').allTextContents()).not.toContain('Parity · faster algorithm');
   await expect(page.locator('#example option[value="parity-fast"]')).toHaveCount(0);
 });

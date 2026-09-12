@@ -94,7 +94,14 @@ supersedes the earlier proposed `ConsoleEndOfInput` fault. The browser delivers
 characters immediately; Enter sends LF and Backspace sends character 8. Paste
 preserves character order and newlines; the EOF button closes the stream. Input
 resumes a playing run automatically, but never a manually paused run. On page
-load, simple primality runs with input 6.
+load, parity is ready with input 4, paused at tick zero.
+
+The execution toolbar and mathematical view share one panel. Input values are
+highlighted blue only in committed `x_t`; weight rows and preview vectors do not
+inherit that input color. Running and Output cards sit beside the calculation on
+desktop and below it on phones. Output reads the committed LED binding, explicitly
+distinguishes a provisional value from a final result, and never reports a preview
+as final. Matrix scrolling stays inside its viewport on small screens.
 
 The greeting stores at most 64 scalars. It continues consuming excess input until
 LF/EOF, then prints the retained prefix. This is a deliberate bounded-memory
@@ -137,47 +144,68 @@ scratch storage and keeps source/control markers for the currently executing cod
 In-place additions/subtractions of representable constants compile directly into
 the retained register's row, weighted by its instruction's dispatch gate. They
 do not need a full operand-select/arithmetic/replace round trip. These general
-passes reduced the unchanged simple-primality source from 414 to 242 coordinates,
-and optimized primality from 819 to 446. There is no primality recognizer or
+passes initially reduced the unchanged simple-primality source from 414 to 242 coordinates,
+and optimized primality from 819 to 446. The additional passes below now reduce
+them to **95 and 306 coordinates**, respectively. There is no primality recognizer or
 hand-built primality matrix in the compiler; the original 24-coordinate matrix
 remains only an independent test oracle.
 
-### Further size strategies (investigated, not yet implemented)
+### Fused control and constant writes
 
-The current simple-primality matrix has 242 coordinates: 122 operand-selection/
-writeback coordinates, 93 program-counter/dispatch/branch coordinates, 11 clock
-coordinates, 7 arithmetic coordinates, and 9 data/constant/end coordinates. Seven
-of those last nine are data registers. Optimizing the transfer and control
-circuits is more promising than further variable reuse.
+Branch conditions feed small continuously evaluated ReLU predicates directly
+into clock-qualified yes/no dispatch gates. For equality, these are
+`p=relu(a-b)`, `q=relu(b-a)`, `equal=relu(1-p-q)`. Predicates settle before
+dispatch samples them and are shared for identical physical operand pairs.
+Comparisons used as ordinary values still materialize a Boolean. Arithmetic
+operands retain their normal evaluation and overflow checks.
 
-1. **Fuse comparisons into branches.** Seven source conditions currently lower
-   to 13 comparison instructions plus branch instructions. An equality predicate
-   can use `p=relu(a-b)`, `q=relu(b-a)`, `equal=relu(1-p-q)` and drive the branch
-   directly, without copying predicate intermediates through general registers.
-   Existing operands must settle before the branch samples them. Estimated
-   savings are roughly 50–90 coordinates; this is an architectural estimate,
-   not an implemented or benchmarked size result.
-2. **Fuse main's constant return with end.** A true-return pulse can directly
-   set the initially zero result; any return pulse sets end. This targets three
-   result-writing instructions and their writeback circuit—about 15 coordinates
-   before secondary savings. Reused helper functions need separate reset and
-   routing rules; main need not inherit that machinery.
-3. **Specialize clear/small-constant assignments.** Constant updates and proven
-   narrow results should not require full-u32 transfers. This is especially
-   useful for Boolean results and counter resets. General primality counters
-   still need full-u32 support; silently limiting the input is not an optimization.
-4. **Summarize pure countdown loops, optionally.** A decrement-to-zero loop can
-   become a clear. For paired decrements, the general result is
-   `y = relu(y - old_x); x = 0`; clearing both requires proving `y <= old_x`.
-   An equivalent-source diagnostic reduced the current simple-primality matrix
-   from 242 to 235 with one reset summary and to 228 with both, agreeing for
-   inputs 0–32. No example source was replaced and no such compiler pass was
-   enabled. This changes the educational trace substantially, so it should be
-   explicit if implemented.
+Main's constant returns through signed-i32 maximum write its initially zero
+result and end on the same update. Helper and parallel-root returns retain
+replacement/reset circuitry because those activations can be reused. Function
+calls enter the first real instruction directly; no no-op entry PC is needed.
 
-These strategies are reusable compiler rules, not hand-built primality matrices.
-Their savings overlap and should not be added together. None proves a globally
-minimum matrix size.
+Targets whose replacement writers are all constants omit the new-value ALU
+transfer. They keep a full-range selected-old-value gate and add the constant
+from the dispatch pulse on the same commit. Constants above signed-i32 maximum
+use multiple synchronous pulse coordinates with legal weight chunks. Mixed
+variable/constant replacement writers retain the general shared path.
+
+Measured default budgets (unchanged example sources):
+
+| Program | Coordinates | Nonzero weights |
+| --- | ---: | ---: |
+| Parity | 6 | 10 |
+| Simple primality | 95 | 263 |
+| Optimized primality | 306 | 844 |
+| Hello / draw H | 209 | 616 |
+| Greeting | 2543 | 7512 |
+| Parallel | 206 | 518 |
+
+These are generic compiler rules, not hand-built primality matrices. No claim
+is made that these sizes are globally minimal.
+
+### Optional countdown summaries
+
+`compile(source, { summarizeLoops: true })`, also exposed under **Compiler
+options** in the browser, summarizes pure decrement-to-zero loops. It is off
+by default because it changes intermediate vectors and educational traces.
+A single countdown becomes a clear. For distinct words decremented once each
+iteration, the general result is `y = relu(y - old_x); x = 0`; other words are
+updated before clearing the counter. No array updates, calls, I/O, declarations,
+or nested control are accepted inside a summarized loop. The artifact retains
+the original source and source-line locations.
+
+This is a speed/trace tradeoff, **not a guaranteed size optimization**: simple
+primality becomes 106 coordinates instead of 95 because the paired summary
+introduces general transfer circuitry. A diagnostic summarizing only its
+single-counter clear yields 91 coordinates. Cost-aware selection of individual
+summaries remains a possible next size strategy; defaults retain the smaller
+95-coordinate circuit and the explicit reset loops.
+
+Changing a valid numeric input in the browser resets execution to tick zero,
+clears previews and device state, and enables stepping without recompiling W.
+Invalid inputs disable transport until corrected. Pending source/device/compiler
+option edits still require compilation and are not cleared by input changes.
 
 ## How source becomes a fixed W
 
@@ -191,7 +219,7 @@ one lowered instruction per active context at a time:
 
 | Update within instruction | Circuit action |
 | --- | --- |
-| 1 | Active program counter emits an execution pulse. |
+| 1 | Active program counter remains stable while the shared clock advances. |
 | 2 | Select operand sources. |
 | 3–5 | Gate full-range u32 operands using three ReLU stages. |
 | 6 | Assemble shared operand ports. |

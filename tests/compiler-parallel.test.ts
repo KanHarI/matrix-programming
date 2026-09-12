@@ -30,7 +30,8 @@ describe('shared regular function circuitry', () => {
     `, { n: 9 });
     expect(result).toBe(21);
     expect(artifact.stats.functionInstances.filter(name => name.endsWith('.increment'))).toEqual(['main.increment']);
-    expect(artifact.markers.filter(marker => marker.label === 'enter increment')).toHaveLength(1);
+    // Calls enter the shared body directly; no no-op function header is emitted.
+    expect(artifact.markers.filter(marker => marker.label === 'enter increment')).toHaveLength(0);
     expect(artifact.markers.filter(marker => marker.label === 'call increment')).toHaveLength(2);
   });
 

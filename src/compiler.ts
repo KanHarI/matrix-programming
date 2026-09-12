@@ -1,6 +1,7 @@
 import { parse } from './parser';
 import { compileStraightLine, pruneArtifact } from './compact';
 import { compileCountdown } from './countdown';
+import { summarizeLoops } from './loop-summary';
 import type { Expr, FunctionDecl, Stmt } from './core/ast';
 import { MAX_U32, type Artifact, type CompileOptions, type Register } from './core/types';
 
@@ -73,6 +74,9 @@ interface Instruction {
   callee?: Fn; continuation?: Instruction; flag?: number;
   owner?: Fn; branches?: Fn[]; emit?: number;
   directDelta?: number;
+  directSet?: number;
+  comparison?: string;
+  returnValue?: number;
   pc?: number; dispatch?: number; preDispatch?: number;
 }
 interface Fn { decl: FunctionDecl; context: Context; params: number[]; result: number; code: Instruction[]; calls: Instruction[]; root: boolean; done?: number }
@@ -81,7 +85,8 @@ type Binding = number | number[];
 
 export function compile(source: string, options: CompileOptions = {}): Artifact {
   if (source.length > 100_000) throw new Error('Compiler safety limit: at most 100,000 source characters');
-  const program = parse(source);
+  const parsed = parse(source);
+  const program = options.summarizeLoops ? summarizeLoops(parsed) : parsed;
   const definitions = new Map<string, FunctionDecl>();
   const fail = (message: string, line?: number): never => { throw new Error(`${line ? `Line ${line}: ` : ''}${message}`); };
   for (const fn of program.functions) {
@@ -174,7 +179,8 @@ export function compile(source: string, options: CompileOptions = {}): Artifact 
     };
     const copy = (src: number, dst: number, line: number) => alu(src, zero, zero, dst, line);
     const jump = (line: number) => emit('jump', line, 'continue');
-    const branch = (value: number, line: number) => Object.assign(emit('branch', line, 'test'), { a: value });
+    const branch = (value: number, line: number) => Object.assign(emit('branch', line, 'test'), { a: value, b: zero, comparison: '!=' });
+    const comparisonBranch = (op: string, a: number, b: number, line: number) => Object.assign(emit('branch', line, `test ${op}`), { a, b, comparison: op });
     const lookup = (name: string, line: number): Binding => env.get(name) ?? fail(`Unknown variable '${name}'`, line);
     const scalar = (name: string, line: number) => { const b = lookup(name, line); return typeof b === 'number' ? b : fail(`Array '${name}' needs an index`, line); };
     const zeroTest = (x: number, line: number) => alu(one, zero, x, temp(line), line);
@@ -198,7 +204,7 @@ export function compile(source: string, options: CompileOptions = {}): Artifact 
       }
       const idx = expression(index), out = write ?? temp(line), exits: Instruction[] = [];
       for (let k = 0; k < array.length; k++) {
-        const test = branch(compare('==', idx, m.constant(k), line), line);
+        const test = comparisonBranch('==', idx, m.constant(k), line);
         test.yes = jump(line);
         if (write === undefined) copy(array[k], out, line); else copy(write, array[k], line);
         exits.push(jump(line)); test.no = jump(line);
@@ -268,13 +274,13 @@ export function compile(source: string, options: CompileOptions = {}): Artifact 
       if (env.has(name)) fail(`Duplicate local '${name}'`, line);
       env.set(name, value);
     }
-    function condition(e: Expr): number {
-      // A branch needs nonzeroness, not a materialized 0/1 comparison value.
-      // Keep normalization for comparisons used as ordinary source values.
+    function condition(e: Expr): Instruction {
+      // Predicates feed control directly; only ordinary expression comparisons
+      // need a materialized result and the general ALU/writeback path.
       if (e.kind === 'binary' && ['==', '!=', '<', '<=', '>', '>='].includes(e.op)) {
-        return compare(e.op, expression(e.left), expression(e.right), e.line, false);
+        return comparisonBranch(e.op, expression(e.left), expression(e.right), e.line);
       }
-      return expression(e);
+      return branch(expression(e), e.line);
     }
     function terminates(s: Stmt): boolean {
       return s.kind === 'return' || (s.kind === 'expr' && s.expression.kind === 'call' && s.expression.name === 'halt') ||
@@ -303,15 +309,23 @@ export function compile(source: string, options: CompileOptions = {}): Artifact 
             break;
           }
           case 'expr': expression(s.expression); break;
-          case 'return': copy(expression(s.value), fn.result, s.line); emit('ret', s.line, `return ${fn.decl.name}`); break;
+          case 'return': {
+            const value = expression(s.value);
+            if (fn.root && !context.pure && m.registers[value].kind === 'constant' && m.registers[value].bound <= HALF) {
+              // Main has one activation and returns only once. Its initially
+              // zero result can be set on the very same update as end.
+              emit('ret', s.line, `return ${fn.decl.name}`).returnValue = m.initial[value];
+            } else { copy(value, fn.result, s.line); emit('ret', s.line, `return ${fn.decl.name}`); }
+            break;
+          }
           case 'if': {
-            const test = branch(condition(s.condition), s.line);
+            const test = condition(s.condition);
             test.yes = jump(s.line); block(s.then); const endThen = jump(s.line);
             test.no = jump(s.line); block(s.otherwise); const after = jump(s.line); endThen.next = after;
             break;
           }
           case 'while': {
-            const start = jump(s.line), test = branch(condition(s.condition), s.line);
+            const start = jump(s.line), test = condition(s.condition);
             test.yes = jump(s.line); block(s.body); jump(s.line).next = start;
             test.no = jump(s.line); break;
           }
@@ -350,8 +364,11 @@ export function compile(source: string, options: CompileOptions = {}): Artifact 
   if (options.devices?.led === false) led = undefined;
 
   // Remove compiler scaffolding before allocating matrix control coordinates.
-  // Entry markers remain explicit for the educational debugger and shared-call
-  // boundaries; ordinary jump-only block boundaries do not need their own PC.
+  // Entering a function is not an operation: calls/forks can activate its first
+  // real instruction directly. Source markers stay on those instructions.
+  for (const context of contexts) for (const fn of context.functions.values()) {
+    if (fn.code[0]?.op === 'jump' && fn.code[0].next) fn.code.shift();
+  }
   const entries = new Set(contexts.flatMap(c => [...c.functions.values()].map(fn => fn.code[0])));
   const thread = (destination: Instruction | undefined): Instruction | undefined => {
     const seen = new Set<Instruction>();
@@ -526,6 +543,19 @@ export function compile(source: string, options: CompileOptions = {}): Artifact 
       if (amount !== undefined) instruction.directDelta = -amount;
     }
   }
+  // Constant-only replacement writers share just the old-value gate. Their
+  // dispatch pulses supply the new value without passing through the ALU.
+  for (const context of contexts) {
+    const targets = new Map<number, Instruction[]>();
+    for (const i of context.code) if (i.target !== undefined && i.directDelta === undefined) {
+      const list = targets.get(i.target) ?? []; list.push(i); targets.set(i.target, list);
+    }
+    for (const writes of targets.values()) {
+      if (writes.every(i => i.op === 'alu' && i.b === zero && i.c === zero && i.a !== undefined && m.registers[i.a].kind === 'constant')) {
+        for (const i of writes) i.directSet = m.initial[i.a!];
+      }
+    }
+  }
   const clock = Array.from({ length: 11 }, (_, i) => m.add(`clock.${i}`, 'control', 1, i === 0 ? 1 : 0));
   clock.forEach((id, i) => m.terms(id, [[clock[(i + 10) % 11], 1]]));
   const allCode = contexts.flatMap(c => c.code);
@@ -537,21 +567,56 @@ export function compile(source: string, options: CompileOptions = {}): Artifact 
     // PCs remain stable for the entire 11-update instruction period. Sample
     // the shared clock directly instead of allocating nine delay coordinates
     // for every instruction's execution pulse.
-    if (i.op === 'branch' || (i.op === 'ret' && !i.owner!.root)) {
+    if (i.op === 'ret' && !i.owner!.root) {
       i.preDispatch = m.row(`instruction.${i.pc}.prepareDispatch`, [[i.pc, 1], [clock[8], 1], [one, -1]], 1, i.context.name);
     }
-    i.dispatch = m.row(`instruction.${i.pc}.dispatch`, [[i.pc, 1], [clock[9], 1], [one, -1]], 1, i.context.name);
-    m.terms(i.pc, [[i.dispatch, -1]]);
+    if (i.op !== 'branch') {
+      i.dispatch = m.row(`instruction.${i.pc}.dispatch`, [[i.pc, 1], [clock[9], 1], [one, -1]], 1, i.context.name);
+      m.terms(i.pc, [[i.dispatch, -1]]);
+    }
   }
   function route(pulse: number, destination: Instruction | undefined) {
     if (!destination) throw new Error('Internal error: missing control destination');
     m.terms(destination.pc!, [[pulse, 1]]);
   }
   for (const context of contexts) {
+    // These continuously evaluated predicates are safe even while their branch
+    // is inactive. Data commits at phase zero; at most two comparator updates
+    // settle well before control samples them at phase nine.
+    const differences = new Map<string, number>(), zeroTests = new Map<number, number>(), equalities = new Map<string, number>();
+    const difference = (a: number, b: number): number => {
+      if (a === b || a === zero) return zero;
+      if (b === zero) return a;
+      const key = `${a}:${b}`;
+      let result = differences.get(key);
+      if (result === undefined) { result = m.row(`${context.name}.compare.difference.${a}.${b}`, [[a, 1], [b, -1]], MAX_U32, context.name); differences.set(key, result); }
+      return result;
+    };
+    const isZero = (a: number): number => {
+      if (a === zero) return one;
+      let result = zeroTests.get(a);
+      if (result === undefined) { result = m.row(`${context.name}.compare.zero.${a}`, [[one, 1], [a, -1]], 1, context.name); zeroTests.set(a, result); }
+      return result;
+    };
+    const predicate = (i: Instruction): { value: number; invert: boolean } => {
+      const a = i.a!, b = i.b!, op = i.comparison!;
+      if (op === '==' || op === '!=') {
+        if (b === zero && m.registers[a].bound <= 1) return { value: a, invert: op === '==' };
+        const key = `${Math.min(a, b)}:${Math.max(a, b)}`;
+        let equal = equalities.get(key);
+        if (equal === undefined) {
+          const p = difference(a, b), q = difference(b, a);
+          equal = p === zero ? isZero(q) : q === zero ? isZero(p) : m.row(`${context.name}.compare.equal.${key}`, [[one, 1], [p, -1], [q, -1]], 1, context.name);
+          equalities.set(key, equal);
+        }
+        return { value: equal, invert: op === '!=' };
+      }
+      return { value: isZero(op === '<' || op === '>=' ? difference(b, a) : difference(a, b)), invert: op === '<' || op === '>' };
+    };
     const operands: number[] = [];
     for (const key of ['a', 'b', 'c'] as const) {
       const readers = new Map<number, number[]>();
-      for (const i of context.code) if (i.directDelta === undefined && i[key] !== undefined && i[key] !== zero) {
+      for (const i of context.code) if (i.op !== 'branch' && i.directDelta === undefined && i.directSet === undefined && i[key] !== undefined && i[key] !== zero) {
         const list = readers.get(i[key]!) ?? []; list.push(i.pc!); readers.set(i[key]!, list);
       }
       const selected = [...readers].map(([value, pcs]) => {
@@ -577,32 +642,47 @@ export function compile(source: string, options: CompileOptions = {}): Artifact 
       aluTerms.push([m.delay(word, 3, 'input.receive', MAX_U32), 1]);
     }
     const alu = m.row(`${context.name}.alu`, aluTerms, MAX_U32, context.name);
-    let nonzero: number | undefined;
-    if (context.code.some(i => i.op === 'branch')) {
-      const positive = m.row(`${context.name}.alu.copy`, [[alu, 1]], MAX_U32, context.name);
-      const minusOne = m.row(`${context.name}.alu.minusOne`, [[alu, 1], [one, -1]], MAX_U32, context.name);
-      nonzero = m.row(`${context.name}.alu.nonzero`, [[positive, 1], [minusOne, -1]], 1, context.name);
-    }
-    const writers = new Map<number, number[]>();
+    const writers = new Map<number, Instruction[]>();
     for (const i of context.code) if (i.directDelta === undefined && i.target !== undefined) {
-      const list = writers.get(i.target) ?? []; list.push(i.pc!); writers.set(i.target, list);
+      const list = writers.get(i.target) ?? []; list.push(i); writers.set(i.target, list);
     }
-    for (const [target, pcs] of writers) {
-      const aligned = m.row(`${context.name}.write.${target}.select`, [...pcs.map(pc => [pc, 1] as [number, number]), [clock[6], 1], [one, -1]], 1, context.name);
-      const value = m.gate(alu, aligned, `${context.name}.write.${target}.new`, context.name);
+    for (const [target, writes] of writers) {
+      const aligned = m.row(`${context.name}.write.${target}.select`, [...writes.map(i => [i.pc!, 1] as [number, number]), [clock[6], 1], [one, -1]], 1, context.name);
       const old = m.gate(target, aligned, `${context.name}.write.${target}.old`, context.name);
-      m.terms(target, [[value, 1], [old, -1]]);
+      m.terms(target, [[old, -1]]);
+      if (writes[0].directSet !== undefined) {
+        for (const i of writes) {
+          let remaining = i.directSet!, pulse = i.dispatch!;
+          while (remaining > 0) {
+            const chunk = Math.min(remaining, HALF);
+            m.terms(target, [[pulse, chunk]]);
+            remaining -= chunk;
+            // Duplicate the same predicate, not a delayed pulse: all pieces
+            // of a full-u32 constant must arrive at the same commit boundary.
+            if (remaining) pulse = m.row(`instruction.${i.pc}.constant.${remaining}`, [[i.pc!, 1], [clock[9], 1], [one, -1]], 1, context.name);
+          }
+        }
+      } else {
+        const value = m.gate(alu, aligned, `${context.name}.write.${target}.new`, context.name);
+        m.terms(target, [[value, 1]]);
+      }
     }
     for (const i of context.code) {
       if (i.op === 'branch') {
-        const yes = m.row(`branch.${i.pc}.yes`, [[i.preDispatch!, 1], [nonzero!, 1], [one, -1]], 1, context.name);
-        const no = m.row(`branch.${i.pc}.no`, [[i.preDispatch!, 1], [nonzero!, -1]], 1, context.name);
+        const { value, invert } = predicate(i);
+        const on = m.row(`branch.${i.pc}.on`, [[i.pc!, 1], [clock[9], 1], [value, 1], [one, -2]], 1, context.name);
+        const off = m.row(`branch.${i.pc}.off`, [[i.pc!, 1], [clock[9], 1], [value, -1], [one, -1]], 1, context.name);
+        const [yes, no] = invert ? [off, on] : [on, off];
+        m.terms(i.pc!, [[yes, -1], [no, -1]]);
         route(yes, i.yes); route(no, i.no);
       } else if (i.op === 'call') {
         route(i.dispatch!, i.callee!.code[0]); m.terms(i.flag!, [[i.dispatch!, 1]]);
       } else if (i.op === 'ret') {
         const fn = i.owner!;
-        if (fn.root) m.terms(fn.done ?? end, [[i.dispatch!, 1]]);
+        if (fn.root) {
+          m.terms(fn.done ?? end, [[i.dispatch!, 1]]);
+          if (i.returnValue) m.terms(fn.result, [[i.dispatch!, i.returnValue]]);
+        }
         else for (const call of fn.calls) {
           const returning = m.row(`return.${i.pc}.to.${call.pc}`, [[i.preDispatch!, 1], [call.flag!, 1], [one, -1]], 1, context.name);
           route(returning, call.continuation); m.terms(call.flag!, [[returning, -1]]);

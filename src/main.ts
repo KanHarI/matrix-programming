@@ -1,4 +1,5 @@
 import './style.css';
+import './execution-workspace.css';
 import './matrix-inspector.css';
 import { compile } from './compiler';
 import { examples } from './examples';
@@ -28,10 +29,11 @@ app.innerHTML = `
         <div class="editor-footer"><span id="dirty">Ready to compile</span><button id="compile" class="primary">Compile & reset <span aria-hidden="true">↗</span></button></div>
         <div id="error" class="error" role="alert" hidden></div>
         <details class="device-config"><summary>Optional devices <span>Only used devices add coordinates</span></summary><div class="device-checks"><label><input type="checkbox" id="enable-led" checked /> Result LED</label><label><input type="checkbox" id="enable-output" checked /> Console output</label><label><input type="checkbox" id="enable-input" checked /> Console input</label><label><input type="checkbox" id="enable-screen" checked /> 16 × 16 screen</label></div><p>The end gate is always available. Console and screen changes apply on compile. The LED toggles immediately, observes a coordinate, and adds no matrix rows.</p></details>
+        <details class="compiler-config"><summary>Compiler options</summary><label><input type="checkbox" id="summarize-loops" /> Summarize pure countdown loops</label><p>Off by default. Replaces decrement-to-zero loops with equivalent assignments for fewer execution steps. Can enlarge the matrix. Results are preserved, but intermediate vectors and stepping traces change. Apply with Compile &amp; reset.</p></details>
       </section>
       <div class="machine-column">
         <section class="panel machine-panel" aria-labelledby="machine-heading">
-          <div class="panel-heading"><h2 id="machine-heading"><span class="section-number">02</span> Machine</h2><span id="backend" class="backend">Loading WASM…</span></div>
+          <div class="panel-heading"><h2 id="machine-heading">Execution</h2><span id="backend" class="backend">Loading WASM…</span></div>
           <div class="machine-stats"><div><strong id="dimensions">—</strong><span>matrix dimensions</span></div><div><strong id="nonzero">—</strong><span>nonzero weights</span></div><div><strong id="contexts">—</strong><span>execution contexts</span></div><div><strong id="tick">0</strong><span>committed ticks</span></div></div>
           <div class="transport"><div class="transport-buttons"><button id="phase-step" class="primary">Multiply →</button><button id="step">Full tick</button><button id="run">▶ Run</button><button id="reset" class="icon-button" aria-label="Reset execution" title="Reset execution">↺</button></div><span id="status" class="status">Not compiled</span></div>
           <div class="phase-track" aria-label="Execution phases"><div data-phase="ready"><b>1</b><span>Current state<small>xₜ · unsigned 32-bit</small></span></div><i>→</i><div data-phase="multiplied"><b>2</b><span>Multiply<small>W xₜ · signed sums</small></span></div><i>→</i><div data-phase="rectified"><b>3</b><span>Apply ReLU<small>max(0, sum)</small></span></div></div>
@@ -76,7 +78,11 @@ presets.append(below.querySelector('.program-picker')!, below.querySelector('#pa
 debug.prepend(document.querySelector('.phase-track')!, $('phase-explanation'), $('active-contexts'));
 const machineColumn = document.querySelector('.machine-column')!;
 const mathPanel = document.createElement('section'); mathPanel.className = 'panel'; mathPanel.id = 'math-overview'; mathPanel.setAttribute('aria-label', 'Mathematical matrix and vector overview');
-workspace.replaceChildren(presets, document.querySelector('.machine-panel')!, mathPanel, document.querySelector('.outputs')!, inspectorPanel, below);
+const executionWorkspace = document.createElement('section');
+executionWorkspace.className = 'panel execution-workspace';
+executionWorkspace.setAttribute('aria-label', 'Matrix execution workspace');
+executionWorkspace.append(document.querySelector('.machine-panel')!, mathPanel);
+workspace.replaceChildren(presets, executionWorkspace, document.querySelector('.outputs')!, inspectorPanel, below);
 machineColumn.remove();
 const mathOverview = new MathOverview(mathPanel, row => {
   matrixInspector.inspect(row, 0);
@@ -96,17 +102,17 @@ let history: { tick: number; result: number | undefined; active: string; changes
 let previousState: Uint32Array | undefined;
 let recentChanges = new Set<number>();
 let needsCompile = false;
+let invalidParameters = false;
 let expandedTerms = false;
 let batchSize = 256;
 let playIntent = false;
-let initialAutoRun = false;
 let composingInput = false;
 let animationFrame: number | undefined;
 
-function stop(): void { running = false; playIntent = false; initialAutoRun = false; if (animationFrame !== undefined) cancelAnimationFrame(animationFrame); animationFrame = undefined; }
+function stop(): void { running = false; playIntent = false; if (animationFrame !== undefined) cancelAnimationFrame(animationFrame); animationFrame = undefined; }
 function beginPlaying(): void {
-  if (!machine || needsCompile || machine.status === 'ended' || machine.status === 'fault') return;
-  initialAutoRun = false; playIntent = true;
+  if (!machine || needsCompile || invalidParameters || machine.status === 'ended' || machine.status === 'fault') return;
+  playIntent = true;
   if (!running) { running = true; render(); animationFrame = requestAnimationFrame(runFrame); }
 }
 function setError(error?: unknown): void {
@@ -138,6 +144,7 @@ function compileProgram(): void {
   try {
     const result = compile(source.value, {
       name: examples.find(example => example.id === picker.value)?.name ?? 'Untitled program',
+      summarizeLoops: $<HTMLInputElement>('summarize-loops').checked,
       devices: {
         consoleOutput: $<HTMLInputElement>('enable-output').checked,
         consoleInput: $<HTMLInputElement>('enable-input').checked,
@@ -147,6 +154,7 @@ function compileProgram(): void {
       },
     });
     const values = inputValues();
+    invalidParameters = false;
     // Source edits may change main's parameters; preserve matching values only.
     const validInputs = Object.fromEntries(Object.keys(result.inputs).map(name => [name, values[name] ?? 0]));
     const next = new Machine(result, validInputs, backend);
@@ -174,11 +182,29 @@ function renderParameters(values: Record<string, number>): void {
     label.textContent = name;
     const input = document.createElement('input');
     input.type = 'number'; input.min = '0'; input.max = '4294967295'; input.step = '1'; input.value = String(value); input.dataset.parameter = name;
-    input.addEventListener('input', () => { stop(); needsCompile = true; $('dirty').textContent = 'Input changed · compile to apply'; render(); });
+    input.addEventListener('input', resetParameters);
     label.append(input);
     return label;
   }));
   container.hidden = !Object.keys(values).length;
+}
+function resetParameters(): void {
+  stop();
+  try {
+    const values = inputValues();
+    invalidParameters = false;
+    setError();
+    // Parameters initialize x, not W. Keep pending source/device edits dirty.
+    if (machine && !needsCompile) {
+      machine.reset(values);
+      resetHistory();
+      $('dirty').textContent = 'Input applied · execution reset';
+    }
+  } catch (error) {
+    invalidParameters = true;
+    setError(error);
+  }
+  render();
 }
 function chooseExample(): void {
   const example = examples.find(item => item.id === picker.value) ?? examples[0]!;
@@ -364,15 +390,15 @@ function render(): void {
   document.querySelectorAll<HTMLElement>('[data-phase]').forEach(item => item.classList.toggle('active', item.dataset.phase === phase));
   const phaseButton = $<HTMLButtonElement>('phase-step');
   phaseButton.textContent = phase === 'ready' ? 'Multiply →' : phase === 'multiplied' ? 'Apply ReLU →' : 'Commit tick →';
-  const canStep = Boolean(machine && (machine.status === 'ready' || machine.status === 'waiting') && !running && !needsCompile);
+  const canStep = Boolean(machine && (machine.status === 'ready' || machine.status === 'waiting') && !running && !needsCompile && !invalidParameters);
   phaseButton.disabled = !canStep; $<HTMLButtonElement>('step').disabled = !canStep;
-  $<HTMLButtonElement>('run').disabled = !machine || machine.status === 'ended' || machine.status === 'fault' || needsCompile;
+  $<HTMLButtonElement>('run').disabled = !machine || machine.status === 'ended' || machine.status === 'fault' || needsCompile || invalidParameters;
   $('run').textContent = running || playIntent ? 'Ⅱ Pause' : '▶ Run';
-  $<HTMLButtonElement>('reset').disabled = !machine || needsCompile;
-  const status = !machine ? 'Not compiled' : running ? 'Running' : machine.status === 'ended' ? 'Ended' : machine.status === 'fault' ? 'Fault' : machine.status === 'waiting' ? 'Waiting for input' : 'Paused';
+  $<HTMLButtonElement>('reset').disabled = !machine || needsCompile || invalidParameters;
+  const status = invalidParameters ? 'Invalid input' : !machine ? 'Not compiled' : running ? 'Running' : machine.status === 'ended' ? 'Ended' : machine.status === 'fault' ? 'Fault' : machine.status === 'waiting' ? 'Waiting for input' : 'Paused';
   $('status').textContent = status; $('status').className = `status ${machine?.status ?? ''}${running ? ' running' : ''}`;
   $('phase-explanation').textContent = !machine ? 'Compile a program to inspect its matrix.' : phase === 'ready' ? 'The current vector is committed. Multiply computes all rows from this same state; no row sees another row’s new value.' : phase === 'multiplied' ? 'These are exact signed sums, before ReLU. Negative values are visible here. The state and all devices are still unchanged.' : 'ReLU has clipped negative sums to zero. Inspect the candidate, then commit atomically. Only commit advances time and emits output.';
-  if (machine?.error) setError(machine.error);
+  if (machine?.error && !invalidParameters) setError(machine.error);
   const markers = artifact && machine && !needsCompile ? artifact.markers.filter(marker => machine!.state[marker.register] !== 0) : [];
   $('active-source').textContent = markers.length ? `Line${markers.length > 1 ? 's' : ''} ${[...new Set(markers.map(marker => marker.line))].join(', ')}` : 'No active instruction';
   $('active-contexts').replaceChildren(...markers.slice(0, 12).map(marker => {
@@ -385,7 +411,7 @@ function render(): void {
     return badge;
   }));
   $('backend').textContent = machine?.backend.name.includes('WASM') || machine?.backend.name.includes('WebAssembly') ? '● WASM · exact i64' : backend ? '● Exact JS · compile for WASM' : '● Exact JS backend';
-  updateGutter(); renderHistory(); renderVector(); renderCalculation(); renderOutputs(); mathOverview.render(artifact, machine, $<HTMLInputElement>('enable-led').checked); if (matrixView) renderMatrix();
+  updateGutter(); renderHistory(); renderVector(); renderCalculation(); renderOutputs(); mathOverview.render(artifact, machine, $<HTMLInputElement>('enable-led').checked, running); if (matrixView) renderMatrix();
 }
 
 for (const example of examples) { const option = document.createElement('option'); option.value = example.id; option.textContent = example.name; picker.append(option); }
@@ -404,8 +430,9 @@ $('step').addEventListener('click', () => { stop(); execute(() => machine!.step(
 $('reset').addEventListener('click', () => { stop(); execute(() => { machine!.reset(inputValues()); resetHistory(); }); });
 $('run').addEventListener('click', () => { if (running || playIntent) { stop(); render(); } else beginPlaying(); });
 for (const id of ['filter', 'internals', 'changed']) $(id).addEventListener('input', renderVector);
-$('enable-led').addEventListener('change', () => { renderOutputs(); mathOverview.render(artifact, machine, $<HTMLInputElement>('enable-led').checked); });
+$('enable-led').addEventListener('change', () => { renderOutputs(); mathOverview.render(artifact, machine, $<HTMLInputElement>('enable-led').checked, running); });
 for (const id of ['enable-output', 'enable-input', 'enable-screen']) $(id).addEventListener('change', () => { stop(); needsCompile = true; $('dirty').textContent = 'Devices changed · compile to apply'; render(); });
+$('summarize-loops').addEventListener('change', () => { stop(); needsCompile = true; $('dirty').textContent = 'Compiler options changed · compile to apply'; render(); });
 function changeView(matrix: boolean): void { matrixView = true; if (matrix) document.querySelector<HTMLDetailsElement>('.matrix-overview')!.open = true; for (const [id, selected] of [['vector-tab', !matrix], ['matrix-tab', matrix]] as const) { $(id).classList.toggle('selected', selected); $(id).setAttribute('aria-pressed', String(selected)); } renderMatrix(); }
 $('vector-tab').addEventListener('click', () => changeView(false)); $('matrix-tab').addEventListener('click', () => changeView(true));
 $('matrix-canvas').addEventListener('click', event => {
@@ -441,14 +468,15 @@ $('console-form').addEventListener('submit', event => { event.preventDefault(); 
 $('send-eof').addEventListener('click', () => deliverCharacters('', true));
 
 const requestedPreset = new URLSearchParams(location.search).get('preset');
-picker.value = examples.some(example => example.id === requestedPreset) ? requestedPreset! : 'prime-simple';
+picker.value = examples.some(example => example.id === requestedPreset) ? requestedPreset! : 'parity';
 chooseExample();
-initialAutoRun = !requestedPreset;
+if (!requestedPreset) {
+  renderParameters({ n: 4 });
+  resetParameters();
+}
 void createWasmBackend().then(result => {
   backend = result;
   $('backend').textContent = '● WASM ready';
   // Do not interrupt a user who already began exploring during loading.
-  const launch = initialAutoRun;
-  if (machine?.tick === 0 && machine.phase === 'ready' && !running && !needsCompile) compileProgram();
-  if (launch) beginPlaying();
-}).catch(error => { $('backend').textContent = '● Exact JS backend'; $('backend').title = `WASM unavailable: ${error instanceof Error ? error.message : String(error)}`; if (initialAutoRun) beginPlaying(); });
+  if (machine?.tick === 0 && machine.phase === 'ready' && !running && !needsCompile && !invalidParameters) compileProgram();
+}).catch(error => { $('backend').textContent = '● Exact JS backend'; $('backend').title = `WASM unavailable: ${error instanceof Error ? error.message : String(error)}`; });

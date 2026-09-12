@@ -1,0 +1,31 @@
+.execution-workspace{border-radius:12px;overflow:hidden}
+.execution-workspace .machine-panel{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px 24px;padding:16px 24px;border:0;border-bottom:1px solid var(--border);border-radius:0;box-shadow:none;background:#f8faf6}
+.execution-workspace .machine-panel>.panel-heading{grid-column:1/-1;min-height:0;padding:0;border:0}
+.execution-workspace .machine-panel .panel-heading h2{font-size:12px}
+.execution-workspace .machine-stats{display:flex;flex-wrap:wrap;gap:10px 20px;padding:0}
+.execution-workspace .machine-stats>div{display:flex;align-items:baseline;gap:6px;padding:0;border:0}
+.execution-workspace .machine-stats strong{font-size:15px;white-space:nowrap}
+.execution-workspace .machine-stats span{font-size:9px;margin:0}
+.execution-workspace .transport{padding:0;gap:12px;flex-wrap:wrap}
+.execution-workspace .transport button{min-height:40px}
+.execution-workspace .math-overview{border:0;border-radius:0;padding:24px}
+.execution-workspace .math-heading h2{font-size:18px;letter-spacing:-.4px}
+.execution-workspace .math-formula{font-size:27px;margin:12px 0}
+.execution-workspace .math-gates{margin-bottom:20px}
+.execution-workspace .math-stage-layout{max-width:1220px;margin:0 auto;grid-template-columns:minmax(0,1fr) 190px;gap:30px;padding:16px 0 24px}
+.execution-workspace .math-objects{min-width:100%;justify-content:center;gap:24px}
+.execution-workspace .math-excerpts{gap:20px;justify-content:flex-start}
+.execution-workspace .math-symbol{font-size:30px;margin-bottom:15px}
+.execution-workspace .math-entries{column-gap:10px;row-gap:4px}
+.execution-workspace .math-overview button.math-value,.execution-workspace .math-ellipsis{height:38px;font-size:25px;line-height:30px;min-width:2ch;padding:3px 5px}
+.execution-workspace .math-bracket{padding:10px 12px}
+.execution-workspace .math-operation{font-size:30px}
+.execution-workspace .math-relu-operation span{font-size:38px}
+.execution-workspace .math-object figcaption{margin-top:16px}
+.execution-workspace .math-status-panel{gap:14px}
+.execution-workspace .math-indicator{padding:20px 16px}
+.execution-workspace .math-coordinate-order{margin-top:0}
+@media(max-width:520px){.execution-workspace .math-overview button.math-value{font-size:22px;height:34px;line-height:28px;padding:2px 4px}}
+@media(max-width:1150px){.execution-workspace .machine-panel{grid-template-columns:minmax(0,1fr)}.execution-workspace .transport{justify-content:space-between}.execution-workspace .math-objects{gap:16px}}
+@media(max-width:900px){.execution-workspace .math-stage-layout{grid-template-columns:minmax(0,1fr);gap:16px;padding:8px 0 16px}.execution-workspace .math-objects{justify-content:flex-start}.execution-workspace .math-status-panel{gap:12px}.execution-workspace .math-indicator{padding:14px}.execution-workspace .math-overview{padding:20px}}
+@media(max-width:520px){.execution-workspace .machine-panel{padding:14px;gap:14px}.execution-workspace .machine-stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px 12px}.execution-workspace .machine-stats>div{flex-wrap:wrap;gap:3px 6px}.execution-workspace .machine-stats span{font-size:9px}.execution-workspace .transport{gap:8px}.execution-workspace .transport-buttons{flex-basis:100%}.execution-workspace .transport button{min-height:44px}.execution-workspace .transport .status{display:none}.execution-workspace .math-overview{padding:16px 12px}.execution-workspace .math-heading h2{font-size:16px}.execution-workspace .math-heading{flex-wrap:wrap;gap:6px}.execution-workspace .math-formula{font-size:23px}.execution-workspace .math-formula-gap{width:16px}.execution-workspace .math-objects{gap:14px}.execution-workspace .math-entries{column-gap:7px;row-gap:3px}.execution-workspace button.math-value,.execution-workspace .math-ellipsis{font-size:22px;height:34px;line-height:28px;padding:2px 4px}.execution-workspace .math-symbol{font-size:26px}.execution-workspace .math-bracket{padding:8px}.execution-workspace .math-gates{margin-bottom:10px}.execution-workspace .math-indicator{padding:12px}.execution-workspace .math-gate-note{line-height:1.5}}

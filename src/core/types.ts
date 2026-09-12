@@ -30,5 +30,7 @@ export interface Artifact {
 }
 export interface CompileOptions {
   name?: string;
+  /** Collapse pure decrement-to-zero loops; changes intermediate traces. */
+  summarizeLoops?: boolean;
   devices?: { consoleOutput?: boolean; consoleInput?: boolean; screen?: boolean; led?: boolean };
 }
