@@ -1,0 +1,18 @@
+.workspace-tabs{display:flex;gap:4px;padding:5px;background:#e7ece3;border:1px solid #dce2d9;border-radius:9px;width:fit-content;max-width:100%}
+.copy-dialog{width:min(700px,90vw);max-height:85vh;border:1px solid var(--border);border-radius:10px;padding:20px;color:var(--ink)}.copy-dialog::backdrop{background:#142b2b88}.copy-dialog h2{font-size:18px}.copy-dialog p{font-size:12px;margin:10px 0}.copy-dialog textarea{width:100%;height:40vh;resize:vertical;font:12px var(--mono);padding:10px}.copy-dialog form{margin-top:10px;text-align:right}
+.workspace-tabs [role=tab]{min-width:105px;min-height:44px;border:1px solid transparent;background:transparent;color:#677a62;font-size:13px}
+.workspace-tabs [role=tab][aria-selected=true]{background:white;border-color:#d5dfcf;color:#203735;box-shadow:0 1px 3px #2037350a}
+.workspace-tab-panel{display:flex;flex-direction:column;gap:16px;min-width:0}
+.workspace-tab-panel[hidden]{display:none}
+.inspect-tab-layout{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(300px,1fr);gap:16px;align-items:start}
+.inspect-details{display:flex;flex-direction:column;gap:16px;min-width:0}.inspect-source{min-width:0}
+#app-panel-program .source-panel{position:static;width:100%}#app-panel-program .editor-wrap{height:550px}
+#app-panel-inspect .matrix-vector-layout{grid-template-columns:minmax(0,1fr)}#app-panel-inspect .vector-section{border-left:0;border-top:1px solid var(--border)}
+.run-inputs{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px 16px;padding:12px 24px;border-bottom:1px solid var(--border);background:#fff}
+.run-inputs .parameters{padding:0}.matrix-copy-tools{display:flex;align-items:center;flex-wrap:wrap;gap:8px}.matrix-copy-tools button{font-size:11px;min-height:36px}
+#copy-feedback{font-size:11px;color:var(--teal);overflow-wrap:anywhere;max-width:360px}
+.workspace-notice{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;background:#fff7df;border:1px solid #e8d294;border-radius:6px;padding:12px;font-size:12px}
+.workspace>#error{margin:0;overflow-wrap:anywhere}.inspect-execution{border:1px solid var(--border)}
+.masthead .repo-link{display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;color:#d6e5d7}.masthead .repo-link:hover{color:#fff}.repo-link svg{display:block;flex-shrink:0}
+@media(max-width:1000px){.inspect-tab-layout{grid-template-columns:minmax(0,1fr)}.inspect-source .source-panel{position:static}}
+@media(max-width:520px){.workspace-tabs{width:100%;gap:2px;padding:4px}.workspace-tabs [role=tab]{flex:1;min-width:0;padding:8px 5px;font-size:12px}.run-inputs{padding:12px 14px}.matrix-copy-tools{width:100%}.matrix-copy-tools button{min-height:44px;flex:1;font-size:11px}#copy-feedback{flex-basis:100%}#app-panel-program .editor-wrap{height:400px}}

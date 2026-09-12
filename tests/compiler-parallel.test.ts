@@ -69,8 +69,11 @@ describe('shared regular function circuitry', () => {
     expect(() => compile(source)).toThrow(/recursion/i);
   });
 
-  it('explicitly rejects rec fn until bounded stacks are implemented', () => {
-    expect(() => compile('rec fn f(n) { return f(n); } fn main() { return f(1); }')).toThrow(/bounded recursive stacks/i);
+  it('unused explicitly recursive functions do not allocate activation banks', () => {
+    const ordinary = compile('fn main() { return 1; }');
+    const unused = compile('rec fn f(n) { return f(n); } fn main() { return 1; }');
+    expect(unused.rows).toEqual(ordinary.rows);
+    expect(unused.initial).toEqual(ordinary.initial);
   });
 });
 

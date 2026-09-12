@@ -88,7 +88,7 @@ describe('compiled primitives execute exclusively as matrix updates', () => {
   it('rejects direct and indirect recursion, including unused recursive declarations', () => {
     expect(() => compile('fn main() { return main(); }')).toThrow();
     expect(() => compile('fn a() { return b(); } fn b() { return a(); } fn main() { return 0; }')).toThrow('Recursion');
-    expect(() => compile('rec fn a() { return 1; } fn main() { return a(); }')).toThrow('reserved');
+    expect(result(execute('rec fn a() { return 1; } fn main() { return a(); }'))).toBe(1);
   });
 
   it('links only used devices and toggling LED does not resize W', () => {

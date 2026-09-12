@@ -1,0 +1,21 @@
+// Genuine source-level self recursion, with 16 fixed activation banks.
+// 0! through 12! fit in u32. Larger products fault instead of wrapping.
+// Every call, return, addition, and loop becomes ordinary matrix circuitry.
+fn multiply(value, times) {
+  let product = 0;
+  while (times > 0) {
+    product = product + value;
+    times = times - 1;
+  }
+  return product;
+}
+
+rec fn factorial(n) {
+  if (n <= 1) { return 1; }
+  let previous = factorial(n - 1);
+  return multiply(previous, n);
+}
+
+fn main(n) {
+  return factorial(n);
+}

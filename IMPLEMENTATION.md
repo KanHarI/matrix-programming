@@ -29,8 +29,22 @@ Every call is compiled into parameter transfers, a saved return-location gate,
 entry activation, a shared function body, and return routing. The ordinary call
 graph must be acyclic, including unused declarations. Each sequential execution
 context owns one instance of a function, regardless of its number of call sites.
-Calls do not use host callbacks. `rec fn` is recognized but rejected with an
-explicit not-yet-implemented diagnostic; there is no recursive stack yet.
+Calls do not use host callbacks. Explicit `rec fn` supports direct self recursion
+using separate fixed activation banks for parameters, locals, scratch storage,
+code, and return gates. `CompileOptions.recursionDepth` defaults to 16 and accepts
+1–32 simultaneous activations per recursive function per context. The default
+recursive factorial preset has 1409 coordinates and 3991 nonzero weights.
+
+The next recursive call selects the next compiled bank; exceeding the capacity
+raises an ordinary gated matrix fault only when that call executes. Base cases
+at the capacity boundary still work. Repeated sequential calls reuse the banks;
+parallel contexts own independent banks. Regular helper bodies remain shared.
+Unused recursive declarations add no matrix circuitry. This is not a single
+shared recursive body with a dynamically addressed stack: depth increases code
+as well as data size. Mutual recursion, recursive main, and self recursion via
+parallel spawning are rejected explicitly. Factorial uses source-level repeated
+addition, supports 0! through 12!, and faults on overflow instead of wrapping;
+no factorial runtime builtin exists.
 
 ```text
 let (a, b) = parallel { compute(n), compute(n + 1) };
@@ -102,6 +116,20 @@ inherit that input color. Running and Output cards sit beside the calculation on
 desktop and below it on phones. Output reads the committed LED binding, explicitly
 distinguishes a provisional value from a final result, and never reports a preview
 as final. Matrix scrolling stays inside its viewport on small screens.
+
+Four accessible keyboard-navigable tabs separate Presets, Program, Run, and
+Inspect. Selecting a preset compiles it and opens Run, paused. The Program and
+Inspect tabs move the same editor node rather than copying it; Run and Inspect
+share the same execution controls. Tab changes do not reset or pause execution.
+Clicking a mathematical coordinate opens its exact row in Inspect. Errors remain
+visible outside the tab panels, including errors raised while source is hidden.
+
+Copy matrix to Python produces a complete dense destination-row/source-column
+list of integer lists, including zeros. Copy input vector copies committed `x_t`,
+the input to the next multiplication, not initial arguments or a preview. Both
+formats are also valid JavaScript/JSON. Dense copy is limited to 10 million
+entries and 32 MiB; larger exports use sparse JSON/CSV. Denied clipboard access
+opens a selectable manual-copy dialog instead of reporting false success.
 
 The greeting stores at most 64 scalars. It continues consuming excess input until
 LF/EOF, then prints the retained prefix. This is a deliberate bounded-memory

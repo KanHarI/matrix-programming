@@ -32,5 +32,7 @@ export interface CompileOptions {
   name?: string;
   /** Collapse pure decrement-to-zero loops; changes intermediate traces. */
   summarizeLoops?: boolean;
+  /** Maximum simultaneous activations of each directly recursive function. */
+  recursionDepth?: number;
   devices?: { consoleOutput?: boolean; consoleInput?: boolean; screen?: boolean; led?: boolean };
 }

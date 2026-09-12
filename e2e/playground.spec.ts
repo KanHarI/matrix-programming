@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
+import { choosePreset, compileProgram, editSource, showTab } from './navigation';
 
 async function open(page: Page) {
   const errors: string[] = [];
@@ -10,11 +11,12 @@ async function open(page: Page) {
   return errors;
 }
 async function example(page: Page, id: string) {
-  await page.locator('#example').selectOption(id);
+  await choosePreset(page, id);
   await expect(page.locator('#error')).toBeHidden();
   await expect(page.locator('#tick')).toHaveText('0');
 }
 async function run(page: Page, status = 'Ended') {
+  await showTab(page, 'run');
   await page.locator('#run').click();
   await expect(page.locator('#status')).toHaveText(status);
   await expect(page.locator('#error')).toBeHidden();
@@ -22,6 +24,7 @@ async function run(page: Page, status = 'Ended') {
 
 test('phase debugger exposes exact multiplication, ReLU and atomic commit', async ({ page }) => {
   const errors = await open(page);
+  await showTab(page, 'inspect');
   await page.locator('#internals').check();
   await page.locator('#filter').fill('belowStride');
   await page.locator('#phase-step').click();
@@ -51,6 +54,7 @@ test('phase debugger exposes exact multiplication, ReLU and atomic commit', asyn
 test('all numeric examples run and device toggles do not enlarge parity', async ({ page }) => {
   const errors = await open(page);
   const dimensions = await page.locator('#dimensions').textContent();
+  await showTab(page, 'inspect');
   await page.locator('.device-config').click();
   await page.locator('#step').click();
   const tick = await page.locator('#tick').textContent();
@@ -59,7 +63,7 @@ test('all numeric examples run and device toggles do not enlarge parity', async 
   await expect(page.locator('#run')).toBeEnabled();
   await expect(page.locator('#dirty')).toHaveText('Compiled · fixed sparse matrix');
   for (const device of ['led', 'output', 'input', 'screen']) await page.locator(`#enable-${device}`).uncheck();
-  await page.locator('#compile').click();
+  await compileProgram(page);
   await expect(page.locator('#dimensions')).toHaveText(dimensions!);
   await expect(page.locator('#led-text')).toHaveText('LED disabled');
   for (const id of ['prime-simple', 'prime-optimized', 'parallel']) {
@@ -104,30 +108,35 @@ test('mobile layout, source editing, and compile errors remain usable', async ({
   await page.setViewportSize({ width: 390, height: 844 });
   const errors = await open(page);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
-  await page.locator('#source').fill('fn main() { return 1; }');
-  await page.locator('#compile').click();
+  await editSource(page, 'fn main() { return 1; }');
+  await compileProgram(page);
   await run(page);
   await expect(page.locator('#led-text')).toContainText('(1)');
   await page.screenshot({ path: 'test-results/mobile.png', fullPage: true });
-  await page.locator('#source').fill('fn main( {');
-  await page.locator('#compile').click();
+  await editSource(page, 'fn main( {');
+  await compileProgram(page);
   await expect(page.locator('#error')).toBeVisible();
   await expect(page.locator('#run')).toBeDisabled();
   expect(errors).toEqual([]);
 });
 
-test('matrix and vector lead the page; every 6x6 coefficient is inspectable and exportable', async ({ page }) => {
+test('Run opens mathematical objects; Inspect exposes every 6x6 coefficient and exports', async ({ page }) => {
   const errors = await open(page);
   await expect(page.locator('#dimensions')).toHaveText('6 × 6');
-  await expect(page.locator('.preset-strip #example')).toBeVisible();
-  await expect(page.locator('.preset-strip #parameters')).toBeVisible();
-  await expect(page.locator('.preset-strip')).not.toContainText('nullnull');
+  await expect(page.locator('#math-overview')).toBeVisible();
+  await expect(page.locator('.source-panel')).toBeHidden();
+  const positions = await page.evaluate(() => ({ matrix: document.querySelector('#math-overview')!.getBoundingClientRect().top, ports: document.querySelector('.outputs')!.getBoundingClientRect().top }));
+  expect(positions.matrix).toBeLessThan(positions.ports);
+  await showTab(page, 'presets');
+  await expect(page.locator('#example')).toBeVisible();
+  await expect(page.locator('#app-panel-presets')).not.toContainText('nullnull');
+  await showTab(page, 'inspect');
+  await expect(page.locator('#parameters')).toBeVisible();
+  await expect(page.locator('.source-panel')).toBeVisible();
   await expect(page.locator('#coefficient-table')).toBeVisible();
   await expect(page.locator('#vector-view')).toBeVisible();
   await expect(page.locator('#coefficient-table button')).toHaveCount(36);
   await expect(page.locator('#vector-body tr')).toHaveCount(6);
-  const positions = await page.evaluate(() => ({ matrix: document.querySelector('#math-overview')!.getBoundingClientRect().top, source: document.querySelector('.source-panel')!.getBoundingClientRect().top, ports: document.querySelector('.outputs')!.getBoundingClientRect().top, detail: document.querySelector('.detail-panel')!.getBoundingClientRect().top }));
-  expect(positions.matrix).toBeLessThan(positions.ports); expect(positions.ports).toBeLessThan(positions.source); expect(positions.ports).toBeLessThan(positions.detail);
   await page.getByRole('button', { name: 'W[0, 5] = -2', exact: true }).click();
   await expect(page.locator('#matrix-cell-detail')).toContainText('W[0, 5] = -2');
   await expect(page.locator('#row-name')).toContainText('[0]');
@@ -156,6 +165,7 @@ test('large matrices use bounded windows and presets enable only linked devices'
     expect(await page.locator('#enable-screen').isChecked()).toBe(screen);
   }
   await example(page, 'greeting');
+  await showTab(page, 'inspect');
   const n = Number((await page.locator('#dimensions').textContent())!.split('×')[0].trim().replaceAll(',', ''));
   expect(n).toBeGreaterThan(100);
   expect(await page.locator('#coefficient-table button').count()).toBeLessThanOrEqual(144);

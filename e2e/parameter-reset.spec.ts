@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { compileProgram, editSource, showTab } from './navigation';
 
 async function open(page: Page, preset?: string): Promise<string[]> {
   const errors: string[] = [];
@@ -94,16 +95,18 @@ test('empty and invalid numeric input blocks transport until corrected', async (
 test('numeric edits do not clear pending source or device changes', async ({ page }) => {
   const errors = await open(page, 'parity');
   const source = page.locator('#source');
-  await source.fill(`${await source.inputValue()}\n// Source edit awaiting compilation.\n`);
+  await editSource(page, `${await source.inputValue()}\n// Source edit awaiting compilation.\n`);
+  await showTab(page, 'inspect');
   await expectTransport(page, false);
   await page.locator('[data-parameter="n"]').fill('10');
   await expectTransport(page, false);
   await expect(page.locator('#dirty')).toContainText(/compile/i);
   await expect(source).toHaveValue(/Source edit awaiting compilation/);
-  await page.locator('#compile').click();
+  await compileProgram(page);
   await expectTransport(page, true);
   await expect(page.locator('#error')).toBeHidden();
 
+  await showTab(page, 'inspect');
   await page.locator('.device-config summary').click();
   await page.locator('#enable-screen').check();
   await expectTransport(page, false);
@@ -111,7 +114,7 @@ test('numeric edits do not clear pending source or device changes', async ({ pag
   await expectTransport(page, false);
   await expect(page.locator('#dirty')).toContainText(/compile/i);
   await expect(page.locator('#enable-screen')).toBeChecked();
-  await page.locator('#compile').click();
+  await compileProgram(page);
   await expectTransport(page, true);
   await expect(page.locator('#error')).toBeHidden();
   expect(errors).toEqual([]);
@@ -124,6 +127,7 @@ test('countdown summarization is opt-in and remains compile-required after numer
   await expect(page.locator('#dimensions')).toHaveText('95 × 95');
   await expectTransport(page, true);
 
+  await showTab(page, 'inspect');
   await page.locator('.compiler-config summary').click();
   await option.check();
   await expectTransport(page, false);
@@ -134,7 +138,7 @@ test('countdown summarization is opt-in and remains compile-required after numer
   await expect(page.locator('#dirty')).toContainText(/compile/i);
   await expect(page.locator('#dimensions')).toHaveText('95 × 95');
 
-  await page.locator('#compile').click();
+  await compileProgram(page);
   await expect(page.locator('#error')).toBeHidden();
   await expect(page.locator('#tick')).toHaveText('0');
   await expect(page.locator('#dimensions')).toHaveText('106 × 106');

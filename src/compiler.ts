@@ -79,19 +79,21 @@ interface Instruction {
   returnValue?: number;
   pc?: number; dispatch?: number; preDispatch?: number;
 }
-interface Fn { decl: FunctionDecl; context: Context; params: number[]; result: number; code: Instruction[]; calls: Instruction[]; root: boolean; done?: number }
+interface Fn { decl: FunctionDecl; instanceName: string; depth: number; context: Context; params: number[]; result: number; code: Instruction[]; calls: Instruction[]; root: boolean; done?: number }
 interface Context { name: string; functions: Map<string, Fn>; code: Instruction[]; pure: boolean; root?: Fn }
 type Binding = number | number[];
 
 export function compile(source: string, options: CompileOptions = {}): Artifact {
   if (source.length > 100_000) throw new Error('Compiler safety limit: at most 100,000 source characters');
+  const recursionDepth = options.recursionDepth ?? 16;
+  if (!Number.isInteger(recursionDepth) || recursionDepth < 1 || recursionDepth > 32) throw new Error('recursionDepth must be an integer from 1 to 32');
   const parsed = parse(source);
   const program = options.summarizeLoops ? summarizeLoops(parsed) : parsed;
   const definitions = new Map<string, FunctionDecl>();
   const fail = (message: string, line?: number): never => { throw new Error(`${line ? `Line ${line}: ` : ''}${message}`); };
   for (const fn of program.functions) {
     if (definitions.has(fn.name)) fail(`Duplicate function '${fn.name}'`, fn.line);
-    if (fn.recursive) fail('rec fn is reserved; bounded recursive stacks are not implemented in this first version', fn.line);
+    if (fn.recursive && fn.name === 'main') fail('main cannot be declared recursive; call a rec fn helper instead', fn.line);
     if (new Set(fn.params).size !== fn.params.length) fail(`Duplicate parameter in '${fn.name}'`, fn.line);
     definitions.set(fn.name, fn);
   }
@@ -110,13 +112,19 @@ export function compile(source: string, options: CompileOptions = {}): Artifact 
   };
   const active = new Set<string>(), visited = new Set<string>();
   function visit(name: string) {
-    if (active.has(name)) fail(`Recursion is not allowed in regular functions (${[...active, name].join(' → ')})`);
+    if (active.has(name)) {
+      const path = [...active];
+      const cycle = [...path.slice(path.indexOf(name)), name];
+      if (cycle.some(member => definitions.get(member)!.recursive)) fail(`Mutual recursion is not supported; rec fn currently supports direct self recursion only (${cycle.join(' → ')})`);
+      fail(`Recursion is not allowed in regular functions (${cycle.join(' → ')})`);
+    }
     if (visited.has(name)) return;
     active.add(name);
     for (const callee of callsIn(definitions.get(name)!.body)) {
       if (builtinNames.has(callee)) continue;
       if (!definitions.has(callee)) fail(`Unknown function '${callee}'`, definitions.get(name)!.line);
       if (callee === 'main') fail('main cannot be called as a helper');
+      if (callee === name && definitions.get(name)!.recursive) continue;
       visit(callee);
     }
     active.delete(name); visited.add(name);
@@ -153,19 +161,20 @@ export function compile(source: string, options: CompileOptions = {}): Artifact 
       if (name === 'screen') devices.screen = { x: port('x', MAX_U32, true), y: port('y', MAX_U32, true), r: port('r', MAX_U32, true), g: port('g', MAX_U32, true), b: port('b', MAX_U32, true), emit: port('emit', 1) };
     }
   }
-  function ensureFn(context: Context, name: string, root = false): Fn {
-    const existing = context.functions.get(name); if (existing) return existing;
+  function ensureFn(context: Context, name: string, root = false, depth = 0): Fn {
     const decl = definitions.get(name) ?? fail(`Unknown function '${name}'`);
-    const prefix = `${context.name}.${name}`;
-    const fn: Fn = { decl, context, params: decl.params.map(p => data(`${prefix}.${p}`, context.name, decl.line)), result: data(`${prefix}.result`, context.name, decl.line), code: [], calls: [], root };
+    const instanceName = decl.recursive ? `${name}@${depth + 1}` : name;
+    const existing = context.functions.get(instanceName); if (existing) return existing;
+    const prefix = `${context.name}.${instanceName}`;
+    const fn: Fn = { decl, instanceName, depth, context, params: decl.params.map(p => data(`${prefix}.${p}`, context.name, decl.line)), result: data(`${prefix}.result`, context.name, decl.line), code: [], calls: [], root };
     if (root && context.pure) fn.done = data(`${context.name}.done`, context.name, decl.line, 1);
-    context.functions.set(name, fn);
+    context.functions.set(instanceName, fn);
     if (root) context.root = fn;
     compileFunction(fn);
     return fn;
   }
   function compileFunction(fn: Fn) {
-    const context = fn.context, prefix = `${context.name}.${fn.decl.name}`;
+    const context = fn.context, prefix = `${context.name}.${fn.instanceName}`;
     let env = new Map<string, Binding>(fn.decl.params.map((p, i) => [p, fn.params[i]]));
     const temp = (line: number) => data(`${prefix}.$${++serial}`, context.name, line);
     const emit = (op: Op, line: number, label: string = op): Instruction => {
@@ -244,8 +253,19 @@ export function compile(source: string, options: CompileOptions = {}): Artifact 
         [screen.x, screen.y, screen.r, screen.g, screen.b].forEach((dst, i) => copy(values[i], dst, line));
         emit('emit', line, 'emit pixel').emit = screen.emit; return zero;
       }
-      const callee = ensureFn(context, name);
-      if (args.length !== callee.params.length) fail(`${name} expects ${callee.params.length} arguments`, line);
+      const declaration = definitions.get(name) ?? fail(`Unknown function '${name}'`, line);
+      if (args.length !== declaration.params.length) fail(`${name} expects ${declaration.params.length} arguments`, line);
+      const nextDepth = declaration.recursive && name === fn.decl.name ? fn.depth + 1 : 0;
+      if (nextDepth >= recursionDepth) {
+        // The fixed matrix contains a guarded overflow continuation, not a host
+        // stack or a compile-time rejection of otherwise valid base cases.
+        args.forEach(expression);
+        const fault = data(`${prefix}.recursionDepthFault.${++serial}`, context.name, line, 1);
+        faults.push({ register: fault, message: `Line ${line}: recursion depth limit ${recursionDepth} exceeded in '${name}'` });
+        copy(one, fault, line);
+        return zero;
+      }
+      const callee = ensureFn(context, name, false, nextDepth);
       const values = args.map(expression);
       values.forEach((value, i) => copy(value, callee.params[i], line));
       const site = emit('call', line, `call ${name}`); site.callee = callee;
@@ -335,6 +355,7 @@ export function compile(source: string, options: CompileOptions = {}): Artifact 
             for (let b = 0; b < s.branches.length; b++) {
               const expr = s.branches[b]; if (expr.kind !== 'call' || builtinNames.has(expr.name)) fail('A parallel branch must call a regular pure function', s.line);
               const invoke = expr as Expr & { kind: 'call' };
+              if (fn.decl.recursive && invoke.name === fn.decl.name) fail('Recursive parallel spawning is not supported; use an ordinary recursive call', s.line);
               const child = newContext(`${context.name}/fork${++serial}.${b}`, true);
               const root = ensureFn(child, invoke.name, true); roots.push(root);
               if (root.params.length !== invoke.args.length) fail(`${invoke.name} expects ${root.params.length} arguments`, s.line);
@@ -353,7 +374,7 @@ export function compile(source: string, options: CompileOptions = {}): Artifact 
       }
       if (scoped) env = outer;
     }
-    jump(fn.decl.line).label = `enter ${fn.decl.name}`;
+    jump(fn.decl.line).label = `enter ${fn.instanceName}`;
     block(fn.decl.body, false);
     copy(zero, fn.result, fn.decl.line); emit('ret', fn.decl.line, 'implicit return 0');
   }
@@ -446,7 +467,7 @@ export function compile(source: string, options: CompileOptions = {}): Artifact 
     if (fn.done !== undefined) observed.add(fn.done);
   }
   for (const context of contexts) for (const fn of context.functions.values()) {
-    const prefix = `${context.name}.${fn.decl.name}`;
+    const prefix = `${context.name}.${fn.instanceName}`;
     const candidates = new Set<number>();
     for (const instruction of fn.code) for (const key of ['a', 'b', 'c', 'target'] as const) {
       const id = instruction[key];

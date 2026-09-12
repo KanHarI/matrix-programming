@@ -20,7 +20,10 @@ npm run dev
 ```
 
 Open the local URL printed by Vite. Parity loads with input 4, paused at tick zero.
-Selecting another example compiles it automatically. Changing a numeric input
+Use **Presets** to select an example, **Program** to edit its source, **Run** for
+the matrix and devices, and **Inspect** for coefficients, vectors, and the same
+source editor. Switching tabs preserves execution and edits.
+Selecting another example compiles it and opens Run. Changing a numeric input
 resets execution to tick zero, paused and ready to step; W is unchanged.
 Source, device, and compiler-option edits require **Compile & reset**.
 **Multiply → Apply ReLU → Commit** advances one phase at a time without producing
@@ -44,6 +47,7 @@ npm run test:browser # Chromium integration tests
 | [Hello](examples/hello.matrix) | Prints `Hello, world!` and draws an H using 26 individual RGB pixel emissions. |
 | [Greeting](examples/greeting.matrix) | Reads until Enter/EOF and prints `Greetings, <NAME>`. Stores 64 Unicode scalar values; drains and truncates excess input. |
 | [Parallel countdowns](examples/parallel.matrix) | Two independent computations advance together, then join their results. |
+| [Recursive factorial](examples/recursive-factorial.matrix) | `rec fn factorial`, with 16 fixed activation banks and source-level multiplication. Starts at 5! = 120; 0–12 fit in u32. |
 
 The core browser workflow steps through multiplication, the signed output before ReLU, the output after ReLU, and committing the next state. Users can select a register/row to see its weighted contributions and follow source instructions and parallel branches. See [DEBUGGER.md](DEBUGGER.md).
 
@@ -66,7 +70,7 @@ See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the staged implementati
 ## Status
 
 Working first implementation: parser, source-to-fixed-matrix compiler, shared
-nonrecursive functions, structured parallel calls, optional I/O, exact reference
+nonrecursive functions, bounded direct self recursion, structured parallel calls, optional I/O, exact reference
 and WASM runtimes, browser phase debugger, and automated unit/integration/browser
 tests. No source instructions are interpreted by the host during execution.
 
@@ -81,14 +85,24 @@ still be slow; Run is cancellable and tests establish a tick-count improvement
 over the simple algorithm, not native-code performance.
 
 Implemented syntax and its differences from the design roadmap are documented in
-[IMPLEMENTATION.md](IMPLEMENTATION.md). The preset selector is near the top and
-selects only its used devices. Mathematical matrix/vector views precede the
-detailed coefficient inspector, ports, source, and row calculations. You can
-inspect every coefficient (including zeros) and export the entire sparse matrix
-as JSON or nonzero-entry CSV.
+[IMPLEMENTATION.md](IMPLEMENTATION.md). Presets select only their used devices.
+Run shows the mathematical matrix/vector view and ports; Inspect contains exact
+coefficients, source, and row calculations. Copy buttons export the entire dense
+matrix or committed input vector `x_t` as integer lists valid in Python and JS.
+Dense copy is capped at 10 million entries / 32 MiB; larger matrices can use
+the full sparse JSON or nonzero CSV downloads in Inspect.
 
-Explicit recursive stacks, atomic parallel
+Recursion currently uses per-depth code/data banks, not one shared recursive body
+with a dynamically addressed stack. Mutual recursion, atomic parallel
 assignment syntax, a worker-based runner, breakpoints, and historical replay are
 not implemented yet. The browser currently retains a short summary of recent
 sampled commits, not a rewindable trace. The broader design documents below are
 the roadmap, not a claim that every proposed feature is shipped.
+
+## Deployment
+
+The GitHub Actions workflow tests and builds every push/PR. Successful `main`
+pushes (or manual runs on `main`) upload `dist` and deploy to GitHub Pages at
+`https://matrix-programming.kanhar.art`. PRs never deploy. The deploy job uses
+the `github-pages` environment and Pages configured for GitHub Actions; the
+custom domain is configured in GitHub, not a generated CNAME file.

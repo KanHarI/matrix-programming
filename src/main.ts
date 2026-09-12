@@ -1,6 +1,8 @@
 import './style.css';
 import './execution-workspace.css';
 import './matrix-inspector.css';
+import './workspace-tabs.css';
+import { matrixPython, vectorPython } from './matrix-copy';
 import { compile } from './compiler';
 import { examples } from './examples';
 import { Machine, createWasmBackend } from './runtime';
@@ -12,7 +14,7 @@ const app = document.querySelector<HTMLDivElement>('#app')!;
 app.innerHTML = `
   <header class="masthead">
     <a class="brand" href="./" aria-label="Matrix Lab home"><span class="brand-icon" aria-hidden="true">▦</span> MATRIX <strong>LAB</strong><span class="version">early preview</span></a>
-    <a class="repo-link" href="https://github.com/KanHarI/matrix-programming" target="_blank" rel="noreferrer">Source & design <span aria-hidden="true">↗</span></a>
+    <a class="repo-link" href="https://github.com/KanHarI/matrix-programming" target="_blank" rel="noreferrer" aria-label="GitHub repository" title="Source and design on GitHub"><svg viewBox="0 0 16 16" width="24" height="24" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg></a>
   </header>
   <main>
     <section class="intro">
@@ -81,10 +83,67 @@ const mathPanel = document.createElement('section'); mathPanel.className = 'pane
 const executionWorkspace = document.createElement('section');
 executionWorkspace.className = 'panel execution-workspace';
 executionWorkspace.setAttribute('aria-label', 'Matrix execution workspace');
-executionWorkspace.append(document.querySelector('.machine-panel')!, mathPanel);
-workspace.replaceChildren(presets, executionWorkspace, document.querySelector('.outputs')!, inspectorPanel, below);
+const executionControls = document.createElement('div'); executionControls.className = 'execution-controls';
+const runInputs = document.createElement('div'); runInputs.className = 'run-inputs';
+runInputs.append(presets.querySelector('#parameters')!);
+const copyTools = document.createElement('div'); copyTools.className = 'matrix-copy-tools';
+copyTools.innerHTML = '<button id="copy-matrix-python" type="button" title="Copy every weight in W as a nested integer list, compatible with Python and JavaScript">Copy matrix to Python</button><button id="copy-input-vector" type="button" title="Copy the current committed vector xₜ, the input to the next multiplication—not a preview">Copy input vector</button><span id="copy-feedback" role="status" aria-live="polite"></span>';
+runInputs.append(copyTools);
+executionControls.append(document.querySelector('.machine-panel')!, runInputs);
+executionWorkspace.append(executionControls, mathPanel);
+const sourcePanel = below.querySelector<HTMLElement>('.source-panel')!;
+const outputDevices = document.querySelector<HTMLElement>('.outputs')!;
+const appTabs = ['presets', 'program', 'run', 'inspect'] as const;
+type AppTab = typeof appTabs[number];
+let activeTab: AppTab = 'run';
+const tabBar = document.createElement('nav'); tabBar.className = 'workspace-tabs'; tabBar.setAttribute('role', 'tablist'); tabBar.setAttribute('aria-label', 'Workspace');
+const tabPanels = new Map<AppTab, HTMLElement>();
+for (const name of appTabs) {
+  const button = document.createElement('button'); button.type = 'button'; button.id = `app-tab-${name}`;
+  button.textContent = name[0]!.toUpperCase() + name.slice(1); button.setAttribute('role', 'tab'); button.setAttribute('aria-controls', `app-panel-${name}`);
+  button.addEventListener('click', () => selectAppTab(name));
+  button.addEventListener('keydown', event => {
+    const index = appTabs.indexOf(name);
+    const next = event.key === 'ArrowRight' ? (index + 1) % appTabs.length : event.key === 'ArrowLeft' ? (index + appTabs.length - 1) % appTabs.length : event.key === 'Home' ? 0 : event.key === 'End' ? appTabs.length - 1 : undefined;
+    if (next === undefined) return;
+    event.preventDefault(); selectAppTab(appTabs[next]!); $(`app-tab-${appTabs[next]}`).focus();
+  });
+  tabBar.append(button);
+  const panel = document.createElement('section'); panel.id = `app-panel-${name}`; panel.className = 'workspace-tab-panel';
+  panel.setAttribute('role', 'tabpanel'); panel.setAttribute('aria-labelledby', button.id); tabPanels.set(name, panel);
+}
+const inspectControls = document.createElement('div'); inspectControls.className = 'execution-workspace inspect-execution';
+const inspectLayout = document.createElement('div'); inspectLayout.className = 'inspect-tab-layout';
+const inspectDetails = document.createElement('div'); inspectDetails.className = 'inspect-details'; inspectDetails.append(inspectorPanel, debug);
+const inspectSource = document.createElement('div'); inspectSource.className = 'inspect-source';
+inspectLayout.append(inspectDetails, inspectSource);
+tabPanels.get('presets')!.append(presets);
+tabPanels.get('program')!.append(sourcePanel);
+tabPanels.get('run')!.append(executionWorkspace, outputDevices);
+tabPanels.get('inspect')!.append(inspectControls, inspectLayout);
+const workspaceNotice = document.createElement('div'); workspaceNotice.className = 'workspace-notice'; workspaceNotice.hidden = true;
+workspaceNotice.innerHTML = '<span>Program or options changed. Compile before running.</span><button type="button">Open Program</button>';
+workspaceNotice.querySelector('button')!.addEventListener('click', () => selectAppTab('program'));
+workspace.replaceChildren(tabBar, sourcePanel.querySelector('#error')!, workspaceNotice, ...tabPanels.values());
+const copyDialog = document.createElement('dialog'); copyDialog.className = 'copy-dialog'; copyDialog.id = 'copy-dialog';
+copyDialog.innerHTML = '<h2>Copy manually</h2><p>Your browser did not allow clipboard access. Select and copy the text below.</p><textarea id="copy-manual-text" aria-label="Text to copy" readonly spellcheck="false"></textarea><form method="dialog"><button>Close</button></form>';
+document.body.append(copyDialog);
+function selectAppTab(name: AppTab, update = true): void {
+  activeTab = name;
+  for (const tab of appTabs) {
+    const selected = tab === name, button = $<HTMLButtonElement>(`app-tab-${tab}`);
+    button.setAttribute('aria-selected', String(selected)); button.tabIndex = selected ? 0 : -1;
+    tabPanels.get(tab)!.hidden = !selected;
+  }
+  (name === 'inspect' ? inspectSource : tabPanels.get('program')!).append(sourcePanel);
+  if (name === 'inspect') inspectControls.append(executionControls);
+  else executionWorkspace.prepend(executionControls);
+  if (update) render();
+}
+selectAppTab('run', false);
 machineColumn.remove();
 const mathOverview = new MathOverview(mathPanel, row => {
+  selectAppTab('inspect');
   matrixInspector.inspect(row, 0);
 });
 const matrixInspector = new MatrixInspector($('matrix-inspector'), row => {
@@ -161,6 +220,7 @@ function compileProgram(): void {
     artifact = result;
     machine = next;
     needsCompile = false;
+    $('copy-feedback').textContent = '';
     renderParameters(validInputs);
     resetHistory();
     selectedRow = result.result ?? result.end;
@@ -221,6 +281,7 @@ function chooseExample(): void {
     $<HTMLInputElement>('enable-led').checked = preset.led !== undefined;
   } catch (error) { setError(error); }
   compileProgram();
+  selectAppTab('run');
 }
 
 function execute(action: () => unknown): void {
@@ -382,6 +443,9 @@ function renderHistory(): void {
   }));
 }
 function render(): void {
+  workspaceNotice.hidden = !needsCompile || activeTab === 'program' || activeTab === 'inspect';
+  $<HTMLButtonElement>('copy-matrix-python').disabled = !artifact || needsCompile;
+  $<HTMLButtonElement>('copy-input-vector').disabled = !machine || needsCompile || invalidParameters;
   $('dimensions').textContent = artifact ? `${artifact.rows.length.toLocaleString()} × ${artifact.rows.length.toLocaleString()}` : '—';
   $('nonzero').textContent = artifact ? artifact.rows.reduce((total, row) => total + row.cols.length, 0).toLocaleString() : '—';
   $('contexts').textContent = artifact ? String(artifact.stats.contexts) : '—';
@@ -417,6 +481,26 @@ function render(): void {
 for (const example of examples) { const option = document.createElement('option'); option.value = example.id; option.textContent = example.name; picker.append(option); }
 picker.addEventListener('change', chooseExample);
 $('compile').addEventListener('click', compileProgram);
+async function copyNumericData(kind: 'matrix' | 'vector'): Promise<void> {
+  if (!artifact || !machine || needsCompile || (kind === 'vector' && invalidParameters)) return;
+  const feedback = $('copy-feedback');
+  try {
+    const tick = machine.tick;
+    const text = kind === 'matrix' ? matrixPython(artifact) : vectorPython(machine.state);
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
+      await navigator.clipboard.writeText(text);
+      feedback.textContent = kind === 'matrix' ? `Copied full ${artifact.rows.length} × ${artifact.rows.length} matrix` : `Copied input vector xₜ · tick ${tick}`;
+    } catch {
+      const field = $<HTMLTextAreaElement>('copy-manual-text'); field.value = text;
+      if (!copyDialog.open) copyDialog.showModal();
+      field.focus(); field.select();
+      feedback.textContent = 'Clipboard unavailable · select and copy the text manually';
+    }
+  } catch (error) { feedback.textContent = error instanceof Error ? error.message : String(error); }
+}
+$('copy-matrix-python').addEventListener('click', () => { void copyNumericData('matrix'); });
+$('copy-input-vector').addEventListener('click', () => { void copyNumericData('vector'); });
 source.addEventListener('input', () => { stop(); needsCompile = true; $('dirty').textContent = 'Source changed · compile to apply'; render(); });
 source.addEventListener('scroll', () => { $('line-numbers').scrollTop = source.scrollTop; });
 source.addEventListener('keydown', event => {

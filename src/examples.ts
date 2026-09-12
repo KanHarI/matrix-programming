@@ -4,6 +4,7 @@ import primeOptimized from '../examples/prime-optimized.matrix?raw';
 import hello from '../examples/hello.matrix?raw';
 import greeting from '../examples/greeting.matrix?raw';
 import parallel from '../examples/parallel.matrix?raw';
+import recursiveFactorial from '../examples/recursive-factorial.matrix?raw';
 
 export interface Example { id: string; name: string; description: string; source: string; inputs: Record<string, number> }
 export const examples: Example[] = [
@@ -13,4 +14,5 @@ export const examples: Example[] = [
   { id: 'hello', name: 'Hello, world! + pixels', description: 'Print text and draw an H on the 16 × 16 screen, one six-port pixel event at a time.', source: hello, inputs: {} },
   { id: 'greeting', name: 'Interactive greeting', description: 'Read a name until Enter, retain up to 64 Unicode characters, and print a personalized greeting.', source: greeting, inputs: {} },
   { id: 'parallel', name: 'Parallel countdowns', description: 'Two independent computations advance together and join before main returns.', source: parallel, inputs: { n: 8 } },
+  { id: 'recursive-factorial', name: 'Recursive factorial', description: 'Direct self recursion with 16 fixed activation banks. Starts at 5! = 120. Values 0–12 fit in u32; larger products or excess recursion depth fault without wrapping.', source: recursiveFactorial, inputs: { n: 5 } },
 ];
