@@ -23,6 +23,8 @@ Open the local URL printed by Vite. Parity loads with input 4, paused at tick ze
 Use **Presets** to select an example, **Program** to edit its source, **Run** for
 the matrix and devices, and **Inspect** for coefficients, vectors, and the same
 source editor. Switching tabs preserves execution and edits.
+The preset name remains visible in every tab while its source is unchanged;
+changing inputs keeps the name, while editing source labels it Custom program.
 Selecting another example compiles it and opens Run. Changing a numeric input
 resets execution to tick zero, paused and ready to step; W is unchanged.
 Source, device, and compiler-option edits require **Compile & reset**.

@@ -124,7 +124,10 @@ tabPanels.get('inspect')!.append(inspectControls, inspectLayout);
 const workspaceNotice = document.createElement('div'); workspaceNotice.className = 'workspace-notice'; workspaceNotice.hidden = true;
 workspaceNotice.innerHTML = '<span>Program or options changed. Compile before running.</span><button type="button">Open Program</button>';
 workspaceNotice.querySelector('button')!.addEventListener('click', () => selectAppTab('program'));
-workspace.replaceChildren(tabBar, sourcePanel.querySelector('#error')!, workspaceNotice, ...tabPanels.values());
+const workspaceContext = document.createElement('div'); workspaceContext.className = 'workspace-context';
+workspaceContext.innerHTML = '<div class="workspace-program"><span id="program-origin">Preset</span><h2 id="active-program-name"></h2></div>';
+workspaceContext.append(tabBar);
+workspace.replaceChildren(workspaceContext, sourcePanel.querySelector('#error')!, workspaceNotice, ...tabPanels.values());
 const copyDialog = document.createElement('dialog'); copyDialog.className = 'copy-dialog'; copyDialog.id = 'copy-dialog';
 copyDialog.innerHTML = '<h2>Copy manually</h2><p>Your browser did not allow clipboard access. Select and copy the text below.</p><textarea id="copy-manual-text" aria-label="Text to copy" readonly spellcheck="false"></textarea><form method="dialog"><button>Close</button></form>';
 document.body.append(copyDialog);
@@ -202,7 +205,7 @@ function compileProgram(): void {
   setError();
   try {
     const result = compile(source.value, {
-      name: examples.find(example => example.id === picker.value)?.name ?? 'Untitled program',
+      name: examples.find(example => example.source === source.value)?.name ?? 'Custom program',
       summarizeLoops: $<HTMLInputElement>('summarize-loops').checked,
       devices: {
         consoleOutput: $<HTMLInputElement>('enable-output').checked,
@@ -443,6 +446,9 @@ function renderHistory(): void {
   }));
 }
 function render(): void {
+  const matchingPreset = examples.find(example => example.source === source.value);
+  $('active-program-name').textContent = matchingPreset?.name ?? 'Custom program';
+  $('program-origin').textContent = matchingPreset ? 'Preset' : 'Edited source';
   workspaceNotice.hidden = !needsCompile || activeTab === 'program' || activeTab === 'inspect';
   $<HTMLButtonElement>('copy-matrix-python').disabled = !artifact || needsCompile;
   $<HTMLButtonElement>('copy-input-vector').disabled = !machine || needsCompile || invalidParameters;

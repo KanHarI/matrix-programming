@@ -56,6 +56,45 @@ test('tabs separate presets, editing, execution and inspection without duplicate
   await expect(page.locator('#app-panel-presets')).toBeVisible();
 });
 
+test('the shared program name follows source identity across tabs, not numeric input values', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('#backend')).toContainText('WASM');
+  const name = page.locator('#active-program-name');
+  const origin = page.locator('#program-origin');
+  const parityName = (await page.locator('#example option:checked').textContent())!;
+  const originalSource = await page.locator('#source').inputValue();
+  const tabs = ['presets', 'program', 'inspect', 'run'] as const;
+  for (const tab of tabs) {
+    await showTab(page, tab);
+    await expect(name).toBeVisible();
+    await expect(name).toHaveText(parityName);
+    await expect(origin).toHaveText('Preset');
+  }
+  await page.locator('[data-parameter="n"]').fill('9');
+  await expect(name).toHaveText(parityName);
+  await showTab(page, 'program');
+  await page.locator('#source').fill(`${originalSource}\n// An edited program.\n`);
+  for (const tab of tabs) {
+    await showTab(page, tab);
+    await expect(name).toBeVisible();
+    await expect(name).toHaveText('Custom program');
+    await expect(origin).toHaveText('Edited source');
+  }
+  await showTab(page, 'program');
+  await page.locator('#source').fill(originalSource);
+  await expect(name).toHaveText(parityName);
+  await expect(origin).toHaveText('Preset');
+  await choosePreset(page, 'recursive-factorial');
+  await expect(name).toHaveText('Recursive factorial');
+  await page.locator('[data-parameter="n"]').fill('6');
+  for (const tab of tabs) {
+    await showTab(page, tab);
+    await expect(name).toBeVisible();
+    await expect(name).toHaveText('Recursive factorial');
+    await expect(origin).toHaveText('Preset');
+  }
+});
+
 test('preset choice opens Run paused, while mathematical row clicks open Inspect', async ({ page }) => {
   await open(page);
   await choosePreset(page, 'prime-simple');
