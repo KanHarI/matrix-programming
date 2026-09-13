@@ -2,8 +2,10 @@ import './style.css';
 import './execution-workspace.css';
 import './matrix-inspector.css';
 import './workspace-tabs.css';
+import './compiler-options.css';
 import { matrixPython, vectorPython } from './matrix-copy';
 import { compile } from './compiler';
+import { optimizationDefinitions, resolveOptimizations, type OptimizationFlags, type OptimizationKey } from './compiler-options';
 import { examples } from './examples';
 import { Machine, createWasmBackend } from './runtime';
 import type { Artifact } from './core/types';
@@ -31,7 +33,7 @@ app.innerHTML = `
         <div class="editor-footer"><span id="dirty">Ready to compile</span><button id="compile" class="primary">Compile & reset <span aria-hidden="true">↗</span></button></div>
         <div id="error" class="error" role="alert" hidden></div>
         <details class="device-config"><summary>Optional devices <span>Only used devices add coordinates</span></summary><div class="device-checks"><label><input type="checkbox" id="enable-led" checked /> Result LED</label><label><input type="checkbox" id="enable-output" checked /> Console output</label><label><input type="checkbox" id="enable-input" checked /> Console input</label><label><input type="checkbox" id="enable-screen" checked /> 16 × 16 screen</label></div><p>The end gate is always available. Console and screen changes apply on compile. The LED toggles immediately, observes a coordinate, and adds no matrix rows.</p></details>
-        <details class="compiler-config"><summary>Compiler options</summary><label><input type="checkbox" id="summarize-loops" /> Summarize pure countdown loops</label><p>Off by default. Replaces decrement-to-zero loops with equivalent assignments for fewer execution steps. Can enlarge the matrix. Results are preserved, but intermediate vectors and stepping traces change. Apply with Compile &amp; reset.</p></details>
+        <details class="compiler-config"><summary>Compiler options <span id="optimization-summary"></span></summary><p class="optimization-intro">Compare how each optimization changes the matrix. Selections apply only with <strong>Compile &amp; reset</strong> and stay selected when switching presets. A pass only affects programs or compiler paths it supports.</p><div class="optimization-actions" role="group" aria-label="Set compiler optimizations"><button id="optimizations-enable-all" type="button">Enable all</button><button id="optimizations-disable-all" type="button">Disable all</button><button id="optimizations-defaults" type="button">Restore defaults</button></div><div id="optimization-groups" class="optimization-groups"></div><p class="optimization-pending-note">Changing flags does not modify the currently compiled matrix. Matrix size, execution time, and intermediate vectors may change after compilation. Loop summarization is off by default because it changes the stepping trace.</p></details>
       </section>
       <div class="machine-column">
         <section class="panel machine-panel" aria-labelledby="machine-heading">
@@ -63,6 +65,72 @@ app.innerHTML = `
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T;
 const source = $<HTMLTextAreaElement>('source');
 const picker = $<HTMLSelectElement>('example');
+const optimizationInputs = new Map<OptimizationKey, HTMLInputElement>();
+buildCompilerOptions();
+
+function buildCompilerOptions(): void {
+  const groups: { title: string; keys: readonly string[] }[] = [
+    { title: 'Specialized compilation paths', keys: ['countdown', 'straightLine', 'counterMachine'] },
+    { title: 'Control flow and comparisons', keys: ['entryElision', 'deadCode', 'jumpThreading', 'constantReturns', 'comparisonFusion', 'predicateSharing', 'counterFacts', 'counterFusion'] },
+    { title: 'Registers and arithmetic', keys: ['copyCoalescing', 'scratchReuse', 'directDelta', 'constantWrites', 'constantOperands', 'prune'] },
+    { title: 'ReLU circuit and timing', keys: ['boundedGates', 'sharedGateDelays', 'clockSampling'] },
+    { title: 'Loop rewrites', keys: ['loopSummaries'] },
+  ];
+  const grouped = new Set(groups.flatMap(group => group.keys));
+  groups.push({ title: 'Other optimization passes', keys: optimizationDefinitions.filter(definition => !grouped.has(definition.key)).map(definition => definition.key) });
+  const defaults = resolveOptimizations();
+  for (const group of groups) {
+    const definitions = optimizationDefinitions.filter(definition => group.keys.includes(definition.key));
+    if (!definitions.length) continue;
+    const fieldset = document.createElement('fieldset'); fieldset.className = 'optimization-group';
+    const legend = document.createElement('legend'); legend.textContent = group.title; fieldset.append(legend);
+    const choices = document.createElement('div'); choices.className = 'optimization-group-options';
+    for (const definition of definitions) {
+      const input = document.createElement('input');
+      input.type = 'checkbox'; input.id = definition.key === 'loopSummaries' ? 'summarize-loops' : `optimization-${definition.key}`;
+      input.dataset.optimization = definition.key; input.checked = defaults[definition.key];
+      const label = document.createElement('label'); label.className = 'optimization-option'; label.htmlFor = input.id;
+      const copy = document.createElement('span'); copy.className = 'optimization-copy';
+      const title = document.createElement('strong');
+      const titleText = document.createElement('span'); titleText.id = `${input.id}-label`; titleText.textContent = definition.label; title.append(titleText);
+      if (!definition.defaultEnabled) {
+        const badge = document.createElement('span'); badge.className = 'optimization-default-off'; badge.textContent = 'OFF BY DEFAULT'; title.append(badge);
+      }
+      const description = document.createElement('span'); description.className = 'optimization-description'; description.id = `${input.id}-description`; description.textContent = definition.description;
+      input.setAttribute('aria-labelledby', titleText.id); input.setAttribute('aria-describedby', description.id);
+      input.addEventListener('change', compilerOptionsChanged);
+      copy.append(title, description); label.append(input, copy); choices.append(label);
+      optimizationInputs.set(definition.key, input);
+    }
+    fieldset.append(choices); $('optimization-groups').append(fieldset);
+  }
+  for (const [id, setting] of [['optimizations-enable-all', true], ['optimizations-disable-all', false], ['optimizations-defaults', null]] as const) {
+    $(id).addEventListener('click', () => {
+      let changed = false;
+      for (const [key, input] of optimizationInputs) {
+        const next = setting ?? defaults[key];
+        if (input.checked !== next) { input.checked = next; changed = true; }
+      }
+      if (changed) compilerOptionsChanged();
+    });
+  }
+  updateOptimizationSummary();
+}
+function readOptimizationFlags(): OptimizationFlags {
+  const flags = resolveOptimizations();
+  for (const [key, input] of optimizationInputs) flags[key] = input.checked;
+  return flags;
+}
+function updateOptimizationSummary(): void {
+  const enabled = [...optimizationInputs.values()].filter(input => input.checked).length;
+  $('optimization-summary').textContent = `${enabled} / ${optimizationInputs.size} enabled`;
+}
+function compilerOptionsChanged(): void {
+  stop(); needsCompile = true;
+  updateOptimizationSummary();
+  $('dirty').textContent = 'Compiler options changed · compile to apply';
+  render();
+}
 // Put the mathematical objects and ports first; source and explanations follow.
 const workspace = document.querySelector<HTMLElement>('.workspace')!;
 const inspectorPanel = document.querySelector<HTMLElement>('.inspector-panel')!;
@@ -206,7 +274,7 @@ function compileProgram(): void {
   try {
     const result = compile(source.value, {
       name: examples.find(example => example.source === source.value)?.name ?? 'Custom program',
-      summarizeLoops: $<HTMLInputElement>('summarize-loops').checked,
+      optimizations: readOptimizationFlags(),
       devices: {
         consoleOutput: $<HTMLInputElement>('enable-output').checked,
         consoleInput: $<HTMLInputElement>('enable-input').checked,
@@ -277,7 +345,7 @@ function chooseExample(): void {
   source.scrollTop = 0;
   // Presets describe actual linked hardware, not the last preset's allowances.
   try {
-    const preset = compile(example.source);
+    const preset = compile(example.source, { optimizations: readOptimizationFlags() });
     $<HTMLInputElement>('enable-output').checked = Boolean(preset.devices.consoleOutput);
     $<HTMLInputElement>('enable-input').checked = Boolean(preset.devices.consoleInput);
     $<HTMLInputElement>('enable-screen').checked = Boolean(preset.devices.screen);
@@ -522,7 +590,6 @@ $('run').addEventListener('click', () => { if (running || playIntent) { stop(); 
 for (const id of ['filter', 'internals', 'changed']) $(id).addEventListener('input', renderVector);
 $('enable-led').addEventListener('change', () => { renderOutputs(); mathOverview.render(artifact, machine, $<HTMLInputElement>('enable-led').checked, running); });
 for (const id of ['enable-output', 'enable-input', 'enable-screen']) $(id).addEventListener('change', () => { stop(); needsCompile = true; $('dirty').textContent = 'Devices changed · compile to apply'; render(); });
-$('summarize-loops').addEventListener('change', () => { stop(); needsCompile = true; $('dirty').textContent = 'Compiler options changed · compile to apply'; render(); });
 function changeView(matrix: boolean): void { matrixView = true; if (matrix) document.querySelector<HTMLDetailsElement>('.matrix-overview')!.open = true; for (const [id, selected] of [['vector-tab', !matrix], ['matrix-tab', matrix]] as const) { $(id).classList.toggle('selected', selected); $(id).setAttribute('aria-pressed', String(selected)); } renderMatrix(); }
 $('vector-tab').addEventListener('click', () => changeView(false)); $('matrix-tab').addEventListener('click', () => changeView(true));
 $('matrix-canvas').addEventListener('click', event => {

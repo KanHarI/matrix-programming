@@ -133,6 +133,7 @@ test('Run opens mathematical objects; Inspect exposes every 6x6 coefficient and 
   await showTab(page, 'inspect');
   await expect(page.locator('#parameters')).toBeVisible();
   await expect(page.locator('.source-panel')).toBeVisible();
+  await page.locator('#matrix-view-grid').click();
   await expect(page.locator('#coefficient-table')).toBeVisible();
   await expect(page.locator('#vector-view')).toBeVisible();
   await expect(page.locator('#coefficient-table button')).toHaveCount(36);
@@ -166,6 +167,7 @@ test('large matrices use bounded windows and presets enable only linked devices'
   }
   await example(page, 'greeting');
   await showTab(page, 'inspect');
+  await page.locator('#matrix-view-grid').click();
   const n = Number((await page.locator('#dimensions').textContent())!.split('×')[0].trim().replaceAll(',', ''));
   expect(n).toBeGreaterThan(100);
   expect(await page.locator('#coefficient-table button').count()).toBeLessThanOrEqual(144);

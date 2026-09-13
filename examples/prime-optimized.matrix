@@ -18,13 +18,16 @@ fn main(n) {
   if (remainder(n, 2) == 0) { return 0; }
   let divisor = 3;
   let square = 9;
+  // (d + 2)^2 - d^2 = 4d + 4: the increments are 16, 24, 32, ...
+  // Keeping this difference avoids multiplication, even by repeated doubling.
+  let increment = 16;
   while (square <= n) {
     if (remainder(n, divisor) == 0) { return 0; }
-    let increment = divisor + divisor + divisor + divisor + 4;
     // Test before adding so the next square cannot overflow 32 bits.
     if (n - square < increment) { return 1; }
     square = square + increment;
     divisor = divisor + 2;
+    increment = increment + 8;
   }
   return 1;
 }

@@ -11,6 +11,7 @@
     "wasm": "node scripts/build-wasm.mjs",
     "test": "npm run wasm && vitest run",
     "check": "tsc --noEmit",
+    "matrix-computer": "npm run wasm && node scripts/matrix-computer.mjs",
     "test:browser": "playwright test"
   },
   "dependencies": {

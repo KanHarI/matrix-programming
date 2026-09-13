@@ -30,6 +30,8 @@ export interface Artifact {
 }
 export interface CompileOptions {
   name?: string;
+  /** Independent optimization switches; omitted entries use documented defaults. */
+  optimizations?: Partial<import('../compiler-options').OptimizationFlags>;
   /** Collapse pure decrement-to-zero loops; changes intermediate traces. */
   summarizeLoops?: boolean;
   /** Maximum simultaneous activations of each directly recursive function. */

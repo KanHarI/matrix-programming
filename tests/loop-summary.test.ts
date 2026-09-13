@@ -133,13 +133,18 @@ describe('optional pure countdown-loop summarization', () => {
     const source = readFileSync(new URL('../examples/prime-simple.matrix', import.meta.url), 'utf8');
     const baseline = compile(source);
     const summarized = compile(source, { summarizeLoops: true });
+    const clocked = compile(source, { optimizations: { counterMachine: false } });
     let baselineTicks = 0;
     let summarizedTicks = 0;
+    let clockedTicks = 0;
     for (let n = 0; n <= 32; n++) {
       const normal = new Machine(baseline, { n }, backend);
       const fast = new Machine(summarized, { n }, backend);
+      const beforeCounterLowering = new Machine(clocked, { n }, backend);
       normal.runBatch(1_000_000);
       fast.runBatch(1_000_000);
+      beforeCounterLowering.runBatch(1_000_000);
+      expect(beforeCounterLowering.status).toBe('ended');
       expect(normal.error).toBeNull();
       expect(fast.error).toBeNull();
       expect(normal.status, `baseline n=${n}`).toBe('ended');
@@ -148,8 +153,12 @@ describe('optional pure countdown-loop summarization', () => {
       expect(fast.state[summarized.result!]).toBe(Number(trialDivisionPrime(n)));
       baselineTicks += normal.tick;
       summarizedTicks += fast.tick;
+      clockedTicks += beforeCounterLowering.tick;
     }
-    expect(summarizedTicks).toBeLessThan(baselineTicks);
+    // Summaries still accelerate the shared-ALU lowering. But the unsummarized
+    // counter program now qualifies for a much faster clock-free backend.
+    expect(summarizedTicks).toBeLessThan(clockedTicks);
+    expect(baselineTicks).toBeLessThan(summarizedTicks);
     expect(summarized.source).toBe(source);
   }, 60_000);
 

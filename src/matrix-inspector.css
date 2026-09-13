@@ -21,6 +21,21 @@
 .matrix-grid-heading h3 { font: 16px var(--mono); }
 .matrix-grid-heading span, .matrix-grid-help { font-size: 10px; color: var(--muted); line-height: 1.7; }
 .matrix-grid-help { margin: 9px 0 12px; }
+.matrix-view-options { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
+.matrix-view-options button { font-size: 11px; min-height: 44px; }
+.matrix-view-options button[aria-pressed=true] { background: var(--teal); color: white; }
+.matrix-view-options label { display: flex; align-items: center; gap: 8px; min-height: 44px; font-size: 11px; cursor: pointer; }
+.matrix-logical-rows { max-height: 480px; overflow: auto; border: 1px solid var(--border); border-radius: 6px; margin-top: 12px; background: #fafbf8; }
+.matrix-logical-row { padding: 10px; border-bottom: 1px solid var(--border); font: 11px/2 var(--mono); overflow-wrap: anywhere; }
+.matrix-logical-row:last-child { border-bottom: 0; }
+.matrix-logical-row button { font: inherit; text-align: left; white-space: normal; overflow-wrap: anywhere; max-width: 100%; min-height: 32px; padding: 3px 6px; }
+.logical-destination { border-color: transparent; background: transparent; font-weight: 600 !important; }
+.logical-coefficient.weight-negative { color: #9c385a; background: #fdebf0; }
+.logical-coefficient.weight-positive { color: #1b695c; background: #e6f3e9; }
+.logical-coefficient.weight-zero { color: #625530; background: #fff5d9; }
+.logical-coefficient[aria-pressed=true] { box-shadow: inset 0 0 0 2px var(--teal); }
+.logical-term-navigation { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.logical-term-navigation span { flex-basis: 100%; color: var(--muted); }
 .matrix-navigation, .matrix-pagination { display: flex; gap: 8px; align-items: end; flex-wrap: wrap; margin: 10px 0; }
 .matrix-navigation label, .matrix-search-label { display: flex; flex-direction: column; gap: 6px; font-size: 10px; color: var(--muted); }
 .matrix-navigation input { width: 100px; font: 11px var(--mono); }
@@ -56,6 +71,7 @@
   .vector-section { border-left: 0; border-top: 1px solid var(--border); }
 }
 @media (max-width: 520px) {
+  .matrix-logical-row button { min-height: 44px; }
   .preset-strip { grid-template-columns: minmax(0, 1fr); }
   #matrix-inspector { padding: 14px 12px; }
   #coefficient-table th:first-child { width: 100px; min-width: 100px; max-width: 100px; }

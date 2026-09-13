@@ -55,6 +55,27 @@ The row explanation must be derived from the loaded matrix and captured state, n
 
 Connect the displays: selecting a source register highlights its matrix column and affected destinations; selecting a destination highlights its row and weighted terms. Show numeric values and symbols as well as colors so the explanation does not depend on color alone.
 
+The implemented **Inspect → Matrix W** inspector offers **Coefficient grid**
+and **Logical rows** representations, with Logical rows selected by default. Logical rows use destination/source
+register names plus indices, with off-diagonal default 0 and a switchable
+diagonal default (initially on, meaning 1). Listed entries are absolute weights,
+not deltas added to the default:
+
+- Diagonal default on: omit diagonal 1s; explicitly include diagonal 0s and
+  every other non-unit diagonal weight.
+- Diagonal default off: list all nonzero coefficients, including diagonal 1s.
+- An empty dictionary means the entire row uses the selected defaults, not
+  necessarily that it is a zero row.
+
+The representation preserves W exactly and never changes the machine state or
+matrix dimensions. ReLU is still applied after multiplication. Clicking a
+listed weight opens the existing row calculation. Logical rows show up to 12
+destinations at once, considering every source column, not just the grid's
+column window. Rows with more than 64 overrides explicitly paginate their
+terms. Search and row navigation reach the remaining coordinates. The existing
+JSON/CSV exports retain their original zero-default meaning independently of
+the display toggle.
+
 Explicitly distinguish a value that was unchanged through retention from one that was clamped to zero by ReLU. Show the source location or compiler-generated phase responsible for a row, when available.
 
 ## 3. Source, instructions, and parallel branches

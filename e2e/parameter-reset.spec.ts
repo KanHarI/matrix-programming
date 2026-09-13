@@ -124,7 +124,7 @@ test('countdown summarization is opt-in and remains compile-required after numer
   const errors = await open(page, 'prime-simple');
   const option = page.locator('#summarize-loops');
   await expect(option).not.toBeChecked();
-  await expect(page.locator('#dimensions')).toHaveText('95 × 95');
+  await expect(page.locator('#dimensions')).toHaveText('26 × 26');
   await expectTransport(page, true);
 
   await showTab(page, 'inspect');
@@ -136,7 +136,7 @@ test('countdown summarization is opt-in and remains compile-required after numer
   await expectTransport(page, false);
   await expect(option).toBeChecked();
   await expect(page.locator('#dirty')).toContainText(/compile/i);
-  await expect(page.locator('#dimensions')).toHaveText('95 × 95');
+  await expect(page.locator('#dimensions')).toHaveText('26 × 26');
 
   await compileProgram(page);
   await expect(page.locator('#error')).toBeHidden();

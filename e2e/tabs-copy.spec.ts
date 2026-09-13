@@ -37,7 +37,8 @@ test('tabs separate presets, editing, execution and inspection without duplicate
   await expect(page.locator('#source')).toBeVisible();
   await expect(page.locator('#source')).toHaveValue(edited);
   await expect(page.locator('#source')).toHaveAttribute('data-identity-test', 'same-source');
-  await expect(page.locator('#coefficient-table')).toBeVisible();
+  await expect(page.locator('#matrix-logical-rows')).toBeVisible();
+  await expect(page.locator('#coefficient-table')).toBeHidden();
   await expect(page.locator('#vector-view')).toBeVisible();
   await expect(page.locator('#math-overview')).toBeHidden();
   await expect(page.locator('.outputs')).toBeHidden();

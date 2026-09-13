@@ -7,6 +7,17 @@ export function coefficient(a: Artifact, row: number, column: number): number {
   return r.cols.reduce((sum, col, i) => sum + (col === column ? r.weights[i] : 0), 0);
 }
 
+/** Absolute coefficient overrides, not W-I deltas. Off-diagonal defaults are 0. */
+export function logicalRow(a: Artifact, row: number, diagonalDefault: 0 | 1): { column: number; weight: number }[] {
+  if (!Number.isInteger(row) || row < 0 || row >= a.rows.length) throw new Error('Matrix coordinate is out of range');
+  const weights = new Map<number, number>();
+  a.rows[row].cols.forEach((column, i) => weights.set(column, (weights.get(column) ?? 0) + a.rows[row].weights[i]));
+  // An absent diagonal coefficient is an explicit zero override in identity mode.
+  if (!weights.has(row)) weights.set(row, 0);
+  return [...weights].filter(([column, weight]) => weight !== (column === row ? diagonalDefault : 0))
+    .sort(([a], [b]) => a - b).map(([column, weight]) => ({ column, weight }));
+}
+
 export function matrixCsv(a: Artifact): string {
   const quote = (value: string) => `"${value.replaceAll('"', '""')}"`;
   const lines = ['destination_index,source_index,weight,destination_name,source_name'];
@@ -39,19 +50,30 @@ export class MatrixInspector {
   private readonly range: HTMLElement;
   private readonly search: HTMLInputElement;
   private readonly matches: HTMLElement;
+  private logicalMode = true;
+  private readonly logical: HTMLElement;
+  private readonly diagonal: HTMLInputElement;
+  private readonly termOffsets = new Map<number, number>();
 
   constructor(private readonly root: HTMLElement, private readonly selectRow: (row: number) => void) {
     root.innerHTML = `
       <div class="matrix-grid-heading"><h3>Matrix W</h3><span>Exact coefficients · read-only</span></div>
-      <p class="matrix-grid-help">Rows write the next state; columns read the current state. Every cell below is an actual signed integer weight, including zeros. Use the overview above or jump to any coordinate.</p>
+      <div class="matrix-view-options" role="group" aria-label="Matrix representation">
+        <button id="matrix-view-grid" type="button" aria-pressed="false">Coefficient grid</button>
+        <button id="matrix-view-logical" type="button" aria-pressed="true">Logical rows</button>
+        <label id="matrix-diagonal-option" hidden><input id="matrix-diagonal-default" type="checkbox" checked>Diagonal default on (1)</label>
+      </div>
+      <p id="matrix-logical-help" class="matrix-grid-help" hidden></p>
+      <p id="matrix-orientation-help" class="matrix-grid-help">Rows write the next state; columns read the current state. Every cell below is an actual signed integer weight, including zeros. Use the overview above or jump to any coordinate.</p>
       <form class="matrix-navigation">
         <label>First row <input id="matrix-row-start" type="number" min="0" step="1" value="0" required></label>
-        <label>First column <input id="matrix-column-start" type="number" min="0" step="1" value="0" required></label>
+        <label id="matrix-column-label">First column <input id="matrix-column-start" type="number" min="0" step="1" value="0" required></label>
         <button type="submit">Go to block</button>
       </form>
       <div class="matrix-pagination"><button type="button" data-move="up" aria-label="Previous matrix rows">↑ Rows</button><button type="button" data-move="down" aria-label="Next matrix rows">↓ Rows</button><button type="button" data-move="left" aria-label="Previous matrix columns">← Columns</button><button type="button" data-move="right" aria-label="Next matrix columns">→ Columns</button><span id="matrix-range" aria-live="polite"></span></div>
       <label class="matrix-search-label">Find a row or column by register name or index<input id="matrix-register-search" type="search" placeholder="e.g. main.main.n, clock, or 937" autocomplete="off"></label>
       <div id="matrix-register-matches" class="matrix-register-matches"></div>
+      <div id="matrix-logical-rows" class="matrix-logical-rows" hidden></div>
       <div class="coefficient-scroll" tabindex="0" aria-label="Scrollable matrix coefficient grid"><table id="coefficient-table"><caption>W — destination rows × source columns (zero-based indices)</caption></table></div>
       <p id="matrix-cell-detail" class="matrix-cell-detail" aria-live="polite">Select a cell to inspect its exact coefficient.</p>
       <div class="matrix-exports"><button id="matrix-export-json" type="button">Download full matrix JSON</button><button id="matrix-export-csv" type="button">Download nonzero CSV</button><span>Exports include every row/column name—not just the visible block. CSV lists nonzero entries; all omitted cells are 0.</span></div>`;
@@ -59,6 +81,11 @@ export class MatrixInspector {
     this.rowInput = get('matrix-row-start'); this.columnInput = get('matrix-column-start');
     this.table = get('coefficient-table'); this.selection = get('matrix-cell-detail'); this.range = get('matrix-range');
     this.search = get('matrix-register-search'); this.matches = get('matrix-register-matches');
+    this.logical = get('matrix-logical-rows'); this.diagonal = get('matrix-diagonal-default');
+    for (const mode of ['grid', 'logical'] as const) get(`matrix-view-${mode}`).addEventListener('click', () => {
+      this.logicalMode = mode === 'logical'; this.render();
+    });
+    this.diagonal.addEventListener('change', () => { this.termOffsets.clear(); this.render(); });
     root.querySelector('form')!.addEventListener('submit', e => {
       e.preventDefault(); if (!this.artifact) return;
       this.startRow = Number(this.rowInput.value); this.startColumn = Number(this.columnInput.value);
@@ -79,6 +106,7 @@ export class MatrixInspector {
   setArtifact(artifact?: Artifact): void {
     if (artifact === this.artifact) return;
     this.artifact = artifact; this.startRow = this.startColumn = this.selectedRow = this.selectedColumn = 0;
+    this.termOffsets.clear();
     this.search.value = ''; this.matches.replaceChildren(); this.render();
   }
 
@@ -87,13 +115,34 @@ export class MatrixInspector {
     this.selectedRow = row; this.selectedColumn = column;
     this.startRow = Math.floor(row / this.pageSize) * this.pageSize;
     this.startColumn = Math.floor(column / this.pageSize) * this.pageSize;
+    if (this.artifact && this.logicalMode) {
+      const terms = logicalRow(this.artifact, row, this.diagonal.checked ? 1 : 0);
+      const index = terms.findIndex(term => term.column === column);
+      this.termOffsets.set(row, index < 0 ? 0 : Math.floor(index / 64) * 64);
+    }
     this.render(); this.selectRow(row);
   }
 
   private render(): void {
     const a = this.artifact, n = a?.rows.length ?? 0;
     this.root.querySelectorAll<HTMLInputElement | HTMLButtonElement>('input,button').forEach(control => { control.disabled = !a; });
+    this.root.querySelector('#matrix-view-grid')!.setAttribute('aria-pressed', String(!this.logicalMode));
+    this.root.querySelector('#matrix-view-logical')!.setAttribute('aria-pressed', String(this.logicalMode));
+    this.root.querySelector<HTMLElement>('.coefficient-scroll')!.hidden = this.logicalMode;
+    this.logical.hidden = !this.logicalMode;
+    for (const id of ['matrix-diagonal-option', 'matrix-logical-help']) this.root.querySelector<HTMLElement>(`#${id}`)!.hidden = !this.logicalMode;
+    this.root.querySelector<HTMLElement>('#matrix-column-label')!.hidden = this.logicalMode;
+    this.columnInput.disabled = this.logicalMode || !a;
+    for (const move of ['left', 'right']) this.root.querySelector<HTMLElement>(`[data-move="${move}"]`)!.hidden = this.logicalMode;
+    this.root.querySelector('#matrix-logical-help')!.textContent =
+      `Defaults: diagonal ${this.diagonal.checked ? 1 : 0}, off-diagonal 0. Listed weights replace these defaults; they are not additions. ` +
+      (this.diagonal.checked ? 'Self-weights of 1 are omitted; every other diagonal weight, including 0, is explicit. ' : 'Only nonzero weights are listed, including diagonal 1s. ') +
+      '{} means this row uses only the defaults. This changes the notation, never W or execution. ReLU still follows W × x.';
+    this.root.querySelector('#matrix-orientation-help')!.textContent = this.logicalMode
+      ? 'Each destination names a row; its dictionary names source columns and their exact weights. Select a weight to inspect the full row calculation below. Row navigation shows 12 destinations at a time.'
+      : 'Rows write the next state; columns read the current state. Every cell below is an actual signed integer weight, including zeros. Use the overview above or jump to any coordinate.';
     this.table.replaceChildren();
+    this.logical.replaceChildren();
     if (!a) { this.range.textContent = 'No compiled matrix'; this.selection.textContent = 'Compile a program to inspect its matrix.'; return; }
     const clamp = (x: number) => Math.max(0, Math.min(n - 1, Number.isFinite(x) ? Math.floor(x) : 0));
     this.startRow = clamp(this.startRow); this.startColumn = clamp(this.startColumn);
@@ -105,10 +154,13 @@ export class MatrixInspector {
       if (col >= this.startColumn && col < endCol) digits = Math.max(digits, String(a.rows[r].weights[i]).length);
     });
     this.table.style.setProperty('--coefficient-width', `${Math.max(36, digits * 7 + 14)}px`);
-    this.range.textContent = `Rows ${this.startRow}–${endRow - 1} · columns ${this.startColumn}–${endCol - 1} · ${n} × ${n} total`;
+    this.range.textContent = this.logicalMode
+      ? `Rows ${this.startRow}–${endRow - 1} · overrides across all ${n} source columns · ${n} × ${n} total`
+      : `Rows ${this.startRow}–${endRow - 1} · columns ${this.startColumn}–${endCol - 1} · ${n} × ${n} total`;
     for (const [move, disabled] of [['up', this.startRow === 0], ['down', endRow === n], ['left', this.startColumn === 0], ['right', endCol === n]] as const) {
       this.root.querySelector<HTMLButtonElement>(`[data-move="${move}"]`)!.disabled = disabled;
     }
+    if (this.logicalMode) { this.renderLogical(endRow); this.renderSelection(); return; }
     const caption = this.table.createCaption(); caption.textContent = 'W — destination rows × source columns (zero-based indices)';
     const header = this.table.createTHead().insertRow();
     const corner = document.createElement('th'); corner.textContent = 'destination ↓ / source →'; header.append(corner);
@@ -136,6 +188,47 @@ export class MatrixInspector {
       }
     }
     this.renderSelection();
+  }
+
+  private renderLogical(endRow: number): void {
+    const a = this.artifact!;
+    for (let row = this.startRow; row < endRow; row++) {
+      const terms = logicalRow(a, row, this.diagonal.checked ? 1 : 0);
+      const offset = this.termOffsets.get(row) ?? 0;
+      const line = document.createElement('div'); line.className = 'matrix-logical-row'; line.dataset.row = String(row);
+      const destination = document.createElement('button'); destination.className = 'logical-destination';
+      destination.textContent = `${JSON.stringify(`[${row}] ${a.registers[row].name}`)}:`;
+      destination.setAttribute('aria-label', `Inspect destination row ${row}: ${a.registers[row].name}`);
+      destination.addEventListener('click', () => this.inspect(row, row));
+      line.append(destination, document.createTextNode(' { '));
+      if (offset > 0) line.append(document.createTextNode('… , '));
+      terms.slice(offset, offset + 64).forEach(({ column, weight }, index) => {
+        if (index) line.append(document.createTextNode(', '));
+        const term = document.createElement('button');
+        term.className = `logical-coefficient ${weight < 0 ? 'weight-negative' : weight > 0 ? 'weight-positive' : 'weight-zero'}`;
+        term.textContent = `${JSON.stringify(`[${column}] ${a.registers[column].name}`)}: ${weight}`;
+        term.dataset.row = String(row); term.dataset.column = String(column); term.dataset.weight = String(weight);
+        term.setAttribute('aria-label', `W[${row}, ${column}] = ${weight}`);
+        term.setAttribute('aria-pressed', String(row === this.selectedRow && column === this.selectedColumn));
+        term.addEventListener('click', () => this.inspect(row, column)); line.append(term);
+      });
+      if (offset + 64 < terms.length) line.append(document.createTextNode(', …'));
+      line.append(document.createTextNode(' }'));
+      if (terms.length > 64) {
+        const navigation = document.createElement('div'); navigation.className = 'logical-term-navigation';
+        const summary = document.createElement('span');
+        summary.textContent = `Partial row: overrides ${offset + 1}–${Math.min(offset + 64, terms.length)} of ${terms.length}. Other overrides are on the remaining pages.`;
+        navigation.append(summary);
+        for (const [label, next] of [['Previous', offset - 64], ['Next', offset + 64]] as const) {
+          const button = document.createElement('button'); button.textContent = `${label} terms`;
+          button.setAttribute('aria-label', `${label} terms for row ${row}`);
+          button.disabled = next < 0 || next >= terms.length;
+          button.addEventListener('click', () => { this.termOffsets.set(row, next); this.render(); }); navigation.append(button);
+        }
+        line.append(navigation);
+      }
+      this.logical.append(line);
+    }
   }
 
   private renderSelection(): void {

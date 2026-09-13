@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { parse } from '../src/parser';
 
 describe('Chevrotain source parser', () => {
-  it.each(['parity', 'prime-simple', 'prime-optimized', 'hello', 'greeting', 'parallel'])('parses the %s example', name => {
+  it.each(['parity', 'prime-simple', 'prime-optimized', 'prime-binary', 'hello', 'greeting', 'parallel'])('parses the %s example', name => {
     const ast = parse(readFileSync(new URL(`../examples/${name}.matrix`, import.meta.url), 'utf8'));
     expect(ast.functions.some(fn => fn.name === 'main')).toBe(true);
   });

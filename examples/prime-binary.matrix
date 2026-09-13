@@ -1,0 +1,43 @@
+// Binary long division: scan the 32 dividend bits, most significant first.
+// Fixed scalar storage; no sieve, arrays, shifts, or host arithmetic helpers.
+fn remainder(n, divisor) {
+  // This helper requires divisor > 0; every caller below supplies at least 2.
+  if (n < divisor) { return n; }
+  let bits = n;
+  let remaining = 0;
+  let count = 32;
+  while (count > 0) {
+    remaining = remaining + remaining;
+    if (bits >= 2147483648) {
+      bits = bits - 2147483648;
+      remaining = remaining + 1;
+    }
+    // Remove the high bit before doubling: even MAX_U32 cannot overflow.
+    bits = bits + bits;
+    // Before reduction, remaining is bounded by the consumed input prefix.
+    // Thus doubling it is safe even when divisor is greater than 2^31.
+    if (remaining >= divisor) {
+      remaining = remaining - divisor;
+    }
+    count = count - 1;
+  }
+  return remaining;
+}
+
+fn main(n) {
+  if (n < 2) { return 0; }
+  if (n == 2) { return 1; }
+  if (remainder(n, 2) == 0) { return 0; }
+  let divisor = 3;
+  let square = 9;
+  // Consecutive odd squares need only additions, not multiplication.
+  let increment = 16;
+  while (square <= n) {
+    if (remainder(n, divisor) == 0) { return 0; }
+    if (n - square < increment) { return 1; }
+    square = square + increment;
+    divisor = divisor + 2;
+    increment = increment + 8;
+  }
+  return 1;
+}

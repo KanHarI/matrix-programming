@@ -174,7 +174,11 @@ the retained register's row, weighted by its instruction's dispatch gate. They
 do not need a full operand-select/arithmetic/replace round trip. These general
 passes initially reduced the unchanged simple-primality source from 414 to 242 coordinates,
 and optimized primality from 819 to 446. The additional passes below now reduce
-them to **95 and 306 coordinates**, respectively. There is no primality recognizer or
+them to **95 and 306 coordinates**, respectively, before clock-free counter lowering.
+The counter passes below reduce simple primality further to **26 coordinates**.
+Maintaining successive square
+increments in the optimized source further reduces it to **286 coordinates**.
+There is no primality recognizer or
 hand-built primality matrix in the compiler; the original 24-coordinate matrix
 remains only an independent test oracle.
 
@@ -203,14 +207,153 @@ Measured default budgets (unchanged example sources):
 | Program | Coordinates | Nonzero weights |
 | --- | ---: | ---: |
 | Parity | 6 | 10 |
-| Simple primality | 95 | 263 |
-| Optimized primality | 306 | 844 |
+| Simple primality | 26 | 71 |
+| Optimized primality | 286 | 782 |
+| Binary-division primality | 314 | 875 |
 | Hello / draw H | 209 | 616 |
 | Greeting | 2543 | 7512 |
 | Parallel | 206 | 518 |
 
 These are generic compiler rules, not hand-built primality matrices. No claim
 is made that these sizes are globally minimal.
+
+### Clock-free counter control and path proofs
+
+A single call-free main containing literal increments/decrements, constant
+assignments, comparisons, and constant returns can use an event-driven counter
+CFG instead of the shared-ALU machine. Eligibility is checked on lowered
+operations, never source names, preset identity, or runtime input values.
+Other programs retain the general backend; function sharing, parallel execution,
+recursion, I/O, and checked u32 arithmetic are unchanged.
+
+- One-shot control tokens update retained data directly; no global clock,
+  operand multiplexers, or writeback gates are allocated.
+- For integer `d` and a 0/1 token `p`, `relu(d)-relu(d-p)` equals `p*[d>0]`.
+  Both hinges sample the same state, avoiding stale-comparison hazards.
+  Complementary branches use the delayed token minus this difference.
+- A conservative difference-bound analysis proves facts over all input values
+  and CFG paths. It handles saturating subtraction, branch refinements, joins,
+  and widening. Analysis budgets fall back to no facts, not partial proofs.
+- A constant assignment to a provably known value becomes a direct delta;
+  assignments of zero to already-zero counters disappear into control edges.
+  Unproved resets retain a two-stage u32 clear with legal signed-i32 weights
+  `-2147483648` and `-2147483647`, followed by the replacement constant.
+- Ordered operands eliminate one side of an equality test. Only **global**
+  ordering facts permit a single hinge: local branch facts are insufficient
+  because an inactive gate must stay zero. Global shortcuts are disabled when
+  multi-stage resets introduce intermediate data states outside the CFG proof.
+- Independent updates share a pulse and can be folded into incoming edges.
+  Repeated writes retain a commit boundary: `x+=1; x-=1` must still overflow
+  at the first update when `x` starts at u32 maximum.
+- Adjacent zero-test branches with globally nonnegative gaps can fuse their
+  conjunction: `relu(p-gap1-gap2)`. No data writes may intervene.
+
+The unchanged simple-primality source compiles to **26×26 / 71 nonzeros**, versus
+the previous **95×95 / 263 nonzeros**. Its four data words remain `n`, `divisor`,
+`count`, and `remainder`; all other coordinates are generated control/output
+circuitry. The original 24-coordinate matrix remains a test oracle only.
+Fusion changes intermediate vectors, tick counts, and source-marker granularity;
+it does not replace the source algorithm with trial division or host code.
+
+| Simple-primality compiler configuration | Coordinates | Nonzero weights | Ticks for n=31 |
+| --- | ---: | ---: | ---: |
+| Default | 26 | 71 | 7,198 |
+| Counter path facts off | 42 | 116 | 7,479 |
+| Counter block fusion off | 40 | 76 | 11,777 |
+| Clock-free counter machine off | 95 | 263 | 89,067 |
+
+For n=6, the default takes 40 updates instead of 473; for n=97, 71,712 instead
+of 890,197. These compare the same source and inputs, not different algorithms.
+
+### Independent optimization flags
+
+The browser exposes all 21 flags under **Program → Compiler options**, also
+available with the source in Inspect. Each has a description; enable-all,
+disable-all, and restore-defaults buttons are provided. Changes mark compilation
+pending and apply only with **Compile & reset**. Numeric input edits do not
+discard pending options, and preset switches retain the selected flags.
+
+```ts
+compile(source, {
+  optimizations: {
+    counterMachine: false, // Recover the 95-coordinate clocked simple prime.
+    scratchReuse: false,
+    loopSummaries: true,
+  },
+});
+```
+
+The typed catalog in `src/compiler-options.ts` is the single source of defaults
+and UI descriptions. Flags: `countdown`, `straightLine`, `counterMachine`,
+`counterFacts`, `counterFusion`, `entryElision`, `deadCode`, `jumpThreading`,
+`copyCoalescing`, `scratchReuse`, `directDelta`, `constantWrites`,
+`constantReturns`, `comparisonFusion`, `predicateSharing`, `constantOperands`,
+`boundedGates`, `sharedGateDelays`, `clockSampling`, `prune`, and `loopSummaries`.
+All default on except `loopSummaries`. Unknown keys/non-Boolean flag values are
+rejected. The legacy `summarizeLoops` option still works; an explicit
+`optimizations.loopSummaries` takes precedence.
+
+These are pass switches, not promises that every pass applies to every source.
+Counter facts/fusion require the counter lowering; general clock/gate/ALU passes
+apply only when that backend is selected. Disabling a prerequisite can select
+a different backend. Disabling all flags is supported, though matrices can be
+much larger. Necessary correctness mechanisms (validation, checked arithmetic,
+function activation isolation, and source semantics) are not optional flags.
+
+The optimized-primality source maintains both `square = divisor²` and
+`increment = 4*divisor + 4`, starting at 9 and 16. After each odd divisor, the
+next square is `square + increment` and the next increment is `increment + 8`.
+This avoids both repeated-addition and doubling-based multiplication for squares.
+The guard `n - square < increment` runs before either counter advances, so the
+next square cannot exceed n or overflow u32. For inputs 97 and 9973 this reduces
+committed ticks from 2453 to 2321 and from 55363 to 53746, respectively.
+
+### Constant-storage binary division variant
+
+`prime-binary` is a separate preset, leaving the smaller `prime-optimized`
+unchanged. It keeps the same odd divisors and incremental squares, replacing
+only the remainder helper with binary long division. It needs the remainder,
+not the quotient, so no quotient accumulator is allocated.
+
+The helper scans the dividend from its most significant bit using three local
+scalars: `bits`, `remaining`, and `count`. A comparison with 2^31 extracts the
+next bit; subtracting that bit's weight before doubling implements a checked,
+unsigned left shift with ordinary source arithmetic. The running remainder
+becomes `2 * remaining + bit`, followed by at most one subtraction of the
+divisor. All of this is compiled through the existing general compiler: no
+new primitive, host division, program-specific matrix, arrays, or stack.
+
+For a positive divisor, the reduced remainder is always less than the divisor.
+The next unreduced remainder is less than twice the divisor, so one subtraction
+suffices. It is also no greater than the input prefix consumed so far, which
+proves that the intermediate additions fit u32, even for divisors above 2^31.
+Removing the high input bit before doubling separately keeps `bits` in range.
+Divisor zero is outside this helper's contract; the preset calls it only with
+divisors at least 2. Dividends below the divisor return immediately.
+
+There are 32 rounds per nontrivial remainder: O(w) arithmetic steps for w-bit
+words, using O(1) word registers (not O(1) bits for unbounded precision). The
+existing doubled-chunk routine rebuilds its scale for every subtraction and
+can take O(w²) steps. This improves division, not the number of trial divisors:
+both presets still consider O(√n) candidates. Neither uses a sieve or implements
+Harvey–van der Hoeven multiplication.
+
+Measured committed ticks, through the same WASM matrix backend:
+
+| Computation | Doubled chunks | Binary division |
+| --- | ---: | ---: |
+| Standalone `4294967295 % 3` | 8,899 | 3,124 |
+| Primality of 4294967295 | 26,125 | 6,490 |
+| Primality of 97 | 2,321 | 11,968 |
+| Primality of 9973 | 53,746 | 127,919 |
+
+The 32-round scan has significant overhead for small operands or quotients;
+it is not a universal runtime improvement. The separate preset makes this
+tradeoff visible without enlarging any existing preset. Tests compare against
+integer remainder across small inputs, deterministic random u32 operands,
+powers of two, and full-range boundaries; selected cases run on both WASM and
+the exact reference backend. Primality and browser tests exercise the actual
+preset source and shared helper calls.
 
 ### Optional countdown summaries
 
@@ -223,12 +366,13 @@ updated before clearing the counter. No array updates, calls, I/O, declarations,
 or nested control are accepted inside a summarized loop. The artifact retains
 the original source and source-line locations.
 
-This is a speed/trace tradeoff, **not a guaranteed size optimization**: simple
-primality becomes 106 coordinates instead of 95 because the paired summary
-introduces general transfer circuitry. A diagnostic summarizing only its
-single-counter clear yields 91 coordinates. Cost-aware selection of individual
-summaries remains a possible next size strategy; defaults retain the smaller
-95-coordinate circuit and the explicit reset loops.
+This is a speed/trace tradeoff, **not a guaranteed size or runtime optimization**:
+simple primality becomes 106 coordinates instead of 26 because the paired
+summary introduces general transfer circuitry and prevents counter lowering.
+It still speeds up the older clocked baseline, but is slower than the new
+clock-free default on the tested small inputs. Cost-aware selection of
+individual summaries remains a possible next strategy; defaults retain the
+smaller counter circuit and explicit reset loops.
 
 Changing a valid numeric input in the browser resets execution to tick zero,
 clears previews and device state, and enables stepping without recompiling W.

@@ -4,3 +4,7 @@ public/kernel.wasm
 coverage/
 test-results/
 .DS_Store
+.venv-video/
+video/media/
+video/output/
+video/__pycache__/

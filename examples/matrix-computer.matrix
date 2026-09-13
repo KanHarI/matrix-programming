@@ -1,0 +1,158 @@
+// A matrix computer INSIDE a compiled matrix computer.
+// All simulation, number formatting, and output execute as Matrix source.
+// The host only runs the outer matrix and displays its character emissions.
+// The inner 6x6 matrix is data in CSR (compressed sparse row) form.
+// Signed weights and raw sums use separate positive/negative u32 lanes.
+// This example's sums fit u32; arbitrary larger matrices may overflow a lane.
+// Use small n: the inner parity circuit takes floor(n/2) + 2 ticks,
+// and the outer computer spends many ticks simulating and printing each one.
+
+fn multiply(value, times) {
+  let product = 0;
+  while (times > 0) {
+    product = product + value;
+    times = times - 1;
+  }
+  return product;
+}
+
+// Decimal conversion is ordinary source code, not a host-side formatter.
+fn number(value) {
+  let places[10];
+  places[0] = 1000000000;
+  places[1] = 100000000;
+  places[2] = 10000000;
+  places[3] = 1000000;
+  places[4] = 100000;
+  places[5] = 10000;
+  places[6] = 1000;
+  places[7] = 100;
+  places[8] = 10;
+  places[9] = 1;
+  let index = 0;
+  let started = 0;
+  while (index < 10) {
+    let place = places[index];
+    let digit = 0;
+    while (value >= place) {
+      value = value - place;
+      digit = digit + 1;
+    }
+    if (digit > 0) { started = 1; }
+    if (index == 9) { started = 1; }
+    if (started > 0) { putc(48 + digit); }
+    index = index + 1;
+  }
+  return 0;
+}
+
+fn main(n) {
+  let rowStart[7];
+  rowStart[0] = 0;
+  rowStart[1] = 2;
+  rowStart[2] = 4;
+  rowStart[3] = 6;
+  rowStart[4] = 7;
+  rowStart[5] = 9;
+  rowStart[6] = 10;
+  let column[10];
+  column[0] = 0; column[1] = 5;
+  column[2] = 0; column[3] = 5;
+  column[4] = 0; column[5] = 5;
+  column[6] = 1;
+  column[7] = 1; column[8] = 2;
+  column[9] = 5;
+  let positive[10];
+  let negative[10];
+  positive[0] = 1; negative[1] = 2;
+  negative[2] = 1; positive[3] = 1;
+  negative[4] = 1; positive[5] = 2;
+  positive[6] = 1;
+  negative[7] = 1; positive[8] = 1;
+  positive[9] = 1;
+  let x[6];
+  let next[6];
+  let belowZero[6];
+  x[0] = n;
+  x[5] = 1;
+
+  print("Inner matrix computer: 6x6 parity\n");
+  print("Order: counter, a, b, LED, END, constant\n");
+  print("W (fixed for every tick):\n");
+  let row = 0;
+  while (row < 6) {
+    print("  [");
+    let col = 0;
+    let entry = rowStart[row];
+    let stop = rowStart[row + 1];
+    while (col < 6) {
+      if (col > 0) { print(", "); }
+      let plus = 0;
+      let minus = 0;
+      if (entry < stop) {
+        if (column[entry] == col) {
+          plus = positive[entry];
+          minus = negative[entry];
+          entry = entry + 1;
+        }
+      }
+      if (minus > 0) { putc(45); number(minus); }
+      else { number(plus); }
+      col = col + 1;
+    }
+    print("]\n");
+    row = row + 1;
+  }
+
+  let tick = 0;
+  while (x[4] == 0) {
+    print("\nTick "); number(tick); print(" -> "); number(tick + 1);
+    print("\nx = [");
+    row = 0;
+    while (row < 6) {
+      if (row > 0) { print(", "); }
+      number(x[row]);
+      row = row + 1;
+    }
+    print("]\nz = W x = [");
+    row = 0;
+    while (row < 6) {
+      let sumPlus = 0;
+      let sumMinus = 0;
+      let entry = rowStart[row];
+      let stop = rowStart[row + 1];
+      while (entry < stop) {
+        let value = x[column[entry]];
+        sumPlus = sumPlus + multiply(value, positive[entry]);
+        sumMinus = sumMinus + multiply(value, negative[entry]);
+        entry = entry + 1;
+      }
+      // Nat subtraction is ReLU: retain both signs before printing raw z.
+      next[row] = sumPlus - sumMinus;
+      belowZero[row] = sumMinus - sumPlus;
+      if (row > 0) { print(", "); }
+      if (belowZero[row] > 0) { putc(45); number(belowZero[row]); }
+      else { number(next[row]); }
+      row = row + 1;
+    }
+    print("]\nReLU(z) = [");
+    row = 0;
+    while (row < 6) {
+      if (row > 0) { print(", "); }
+      number(next[row]);
+      row = row + 1;
+    }
+    print("]\nCommit x <- ReLU(z)\n");
+    // Commit only after EVERY row has read the old x.
+    row = 0;
+    while (row < 6) {
+      x[row] = next[row];
+      row = row + 1;
+    }
+    tick = tick + 1;
+  }
+  print("END = "); number(x[4]); print("; LED = "); number(x[3]);
+  if (x[3] > 0) { print(" (even)\n"); }
+  else { print(" (odd)\n"); }
+  return x[3];
+}

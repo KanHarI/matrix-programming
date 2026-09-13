@@ -2,6 +2,8 @@ import { parse } from './parser';
 import { compileStraightLine, pruneArtifact } from './compact';
 import { compileCountdown } from './countdown';
 import { summarizeLoops } from './loop-summary';
+import { lowerCounterMachine } from './counter-machine';
+import { resolveOptimizations, type OptimizationFlags } from './compiler-options';
 import type { Expr, FunctionDecl, Stmt } from './core/ast';
 import { MAX_U32, type Artifact, type CompileOptions, type Register } from './core/types';
 
@@ -10,6 +12,7 @@ import { MAX_U32, type Artifact, type CompileOptions, type Register } from './co
 const HALF = 0x7fff_ffff;
 type Terms = [number, number][];
 class Matrix {
+  constructor(private optimizations: OptimizationFlags) {}
   registers: Register[] = [];
   initial: number[] = [];
   rows: Map<number, number>[] = [];
@@ -47,13 +50,13 @@ class Matrix {
   gate(value: number, bit: number, name: string, context: string) {
     const one = this.constant(1);
     const bound = this.registers[value].bound;
-    if (bound <= HALF) {
+    if (this.optimizations.boundedGates && bound <= HALF) {
       // Small bounded words need one selection stage, followed by two timing
       // stages. They do not need the full-u32 three-part subtraction circuit.
       const selected = this.row(`${name}.selected`, [[value, 1], [one, -bound], [bit, bound]], bound, context);
       return this.delay(selected, 2, `${name}.value`, bound, context);
     }
-    let delays = this.gateDelays.get(bit);
+    let delays = this.optimizations.sharedGateDelays ? this.gateDelays.get(bit) : undefined;
     if (!delays) {
       const d1 = this.delay(bit, 1, `${name}.select`, 1, context);
       delays = [d1, this.delay(d1, 1, `${name}.select2`, 1, context)];
@@ -84,11 +87,12 @@ interface Context { name: string; functions: Map<string, Fn>; code: Instruction[
 type Binding = number | number[];
 
 export function compile(source: string, options: CompileOptions = {}): Artifact {
+  const optimizations = resolveOptimizations(options);
   if (source.length > 100_000) throw new Error('Compiler safety limit: at most 100,000 source characters');
   const recursionDepth = options.recursionDepth ?? 16;
   if (!Number.isInteger(recursionDepth) || recursionDepth < 1 || recursionDepth > 32) throw new Error('recursionDepth must be an integer from 1 to 32');
   const parsed = parse(source);
-  const program = options.summarizeLoops ? summarizeLoops(parsed) : parsed;
+  const program = optimizations.loopSummaries ? summarizeLoops(parsed) : parsed;
   const definitions = new Map<string, FunctionDecl>();
   const fail = (message: string, line?: number): never => { throw new Error(`${line ? `Line ${line}: ` : ''}${message}`); };
   for (const fn of program.functions) {
@@ -131,12 +135,12 @@ export function compile(source: string, options: CompileOptions = {}): Artifact 
   }
   for (const name of definitions.keys()) visit(name);
 
-  const countdown = compileCountdown(program, source, options);
+  const countdown = optimizations.countdown ? compileCountdown(program, source, options) : undefined;
   if (countdown) return countdown;
-  const straightLine = compileStraightLine(program, source, options);
-  if (straightLine) return pruneArtifact(straightLine);
+  const straightLine = optimizations.straightLine ? compileStraightLine(program, source, options) : undefined;
+  if (straightLine) return optimizations.prune ? pruneArtifact(straightLine) : straightLine;
 
-  const m = new Matrix(), one = m.constant(1), zero = m.constant(0);
+  const m = new Matrix(optimizations), one = m.constant(1), zero = m.constant(0);
   const end = m.add('end', 'control', 1); m.hold(end);
   const devices: Artifact['devices'] = {};
   const faults: NonNullable<Artifact['faults']> = [];
@@ -189,7 +193,9 @@ export function compile(source: string, options: CompileOptions = {}): Artifact 
     const copy = (src: number, dst: number, line: number) => alu(src, zero, zero, dst, line);
     const jump = (line: number) => emit('jump', line, 'continue');
     const branch = (value: number, line: number) => Object.assign(emit('branch', line, 'test'), { a: value, b: zero, comparison: '!=' });
-    const comparisonBranch = (op: string, a: number, b: number, line: number) => Object.assign(emit('branch', line, `test ${op}`), { a, b, comparison: op });
+    const comparisonBranch = (op: string, a: number, b: number, line: number) => optimizations.comparisonFusion
+      ? Object.assign(emit('branch', line, `test ${op}`), { a, b, comparison: op })
+      : branch(compare(op, a, b, line), line);
     const lookup = (name: string, line: number): Binding => env.get(name) ?? fail(`Unknown variable '${name}'`, line);
     const scalar = (name: string, line: number) => { const b = lookup(name, line); return typeof b === 'number' ? b : fail(`Array '${name}' needs an index`, line); };
     const zeroTest = (x: number, line: number) => alu(one, zero, x, temp(line), line);
@@ -331,7 +337,7 @@ export function compile(source: string, options: CompileOptions = {}): Artifact 
           case 'expr': expression(s.expression); break;
           case 'return': {
             const value = expression(s.value);
-            if (fn.root && !context.pure && m.registers[value].kind === 'constant' && m.registers[value].bound <= HALF) {
+            if (optimizations.constantReturns && fn.root && !context.pure && m.registers[value].kind === 'constant' && m.registers[value].bound <= HALF) {
               // Main has one activation and returns only once. Its initially
               // zero result can be set on the very same update as end.
               emit('ret', s.line, `return ${fn.decl.name}`).returnValue = m.initial[value];
@@ -370,7 +376,7 @@ export function compile(source: string, options: CompileOptions = {}): Artifact 
             break;
           }
         }
-        if (terminates(s)) break;
+        if (optimizations.deadCode && terminates(s)) break;
       }
       if (scoped) env = outer;
     }
@@ -387,11 +393,12 @@ export function compile(source: string, options: CompileOptions = {}): Artifact 
   // Remove compiler scaffolding before allocating matrix control coordinates.
   // Entering a function is not an operation: calls/forks can activate its first
   // real instruction directly. Source markers stay on those instructions.
-  for (const context of contexts) for (const fn of context.functions.values()) {
+  if (optimizations.entryElision) for (const context of contexts) for (const fn of context.functions.values()) {
     if (fn.code[0]?.op === 'jump' && fn.code[0].next) fn.code.shift();
   }
   const entries = new Set(contexts.flatMap(c => [...c.functions.values()].map(fn => fn.code[0])));
   const thread = (destination: Instruction | undefined): Instruction | undefined => {
+    if (!optimizations.jumpThreading) return destination;
     const seen = new Set<Instruction>();
     while (destination?.op === 'jump' && !entries.has(destination) && destination.next && !seen.has(destination)) {
       seen.add(destination); destination = destination.next;
@@ -423,6 +430,7 @@ export function compile(source: string, options: CompileOptions = {}): Artifact 
   // specialization is involved: this is ordinary register/copy coalescing.
   const readCounts = new Map<number, number>();
   const predecessors = new Map<Instruction, Instruction[]>();
+  if (!optimizations.deadCode) for (const instruction of originalCode) reachable.add(instruction);
   for (const instruction of reachable) {
     for (const key of ['a', 'b', 'c'] as const) if (instruction[key] !== undefined) {
       readCounts.set(instruction[key]!, (readCounts.get(instruction[key]!) ?? 0) + 1);
@@ -431,7 +439,7 @@ export function compile(source: string, options: CompileOptions = {}): Artifact 
       const incoming = predecessors.get(next) ?? []; incoming.push(instruction); predecessors.set(next, incoming);
     }
   }
-  for (const instruction of reachable) {
+  if (optimizations.copyCoalescing) for (const instruction of reachable) {
     const source = instruction.a;
     if (instruction.op !== 'alu' || source === undefined || instruction.b !== zero || instruction.c !== zero || source === led || readCounts.get(source) !== 1) continue;
     if (!m.registers[source].name.includes('.$')) continue;
@@ -466,7 +474,7 @@ export function compile(source: string, options: CompileOptions = {}): Artifact 
     observed.add(fn.result);
     if (fn.done !== undefined) observed.add(fn.done);
   }
-  for (const context of contexts) for (const fn of context.functions.values()) {
+  if (optimizations.scratchReuse) for (const context of contexts) for (const fn of context.functions.values()) {
     const prefix = `${context.name}.${fn.instanceName}`;
     const candidates = new Set<number>();
     for (const instruction of fn.code) for (const key of ['a', 'b', 'c', 'target'] as const) {
@@ -553,7 +561,7 @@ export function compile(source: string, options: CompileOptions = {}): Artifact 
   // In-place affine increments/decrements need no operand selection or ALU
   // writeback circuitry: the instruction's existing dispatch pulse can update
   // the retained coordinate directly, at the same commit boundary as before.
-  for (const context of contexts) for (const instruction of context.code) {
+  if (optimizations.directDelta) for (const context of contexts) for (const instruction of context.code) {
     if (instruction.op !== 'alu') continue;
     const constantValue = (id: number | undefined): number | undefined => id !== undefined && m.registers[id].kind === 'constant' && m.registers[id].bound <= HALF ? m.initial[id] : undefined;
     if (instruction.c === zero) {
@@ -566,7 +574,7 @@ export function compile(source: string, options: CompileOptions = {}): Artifact 
   }
   // Constant-only replacement writers share just the old-value gate. Their
   // dispatch pulses supply the new value without passing through the ALU.
-  for (const context of contexts) {
+  if (optimizations.constantWrites) for (const context of contexts) {
     const targets = new Map<number, Instruction[]>();
     for (const i of context.code) if (i.target !== undefined && i.directDelta === undefined) {
       const list = targets.get(i.target) ?? []; list.push(i); targets.set(i.target, list);
@@ -577,6 +585,21 @@ export function compile(source: string, options: CompileOptions = {}): Artifact 
       }
     }
   }
+  const finish = (allCode: Instruction[]) => {
+    const artifact: Artifact = {
+      version: 1, name: options.name ?? 'Matrix program', source,
+      rows: m.rows.map(row => ({ cols: [...row.keys()], weights: [...row.values()] })),
+      registers: m.registers, initial: m.initial,
+      inputs: Object.fromEntries(main.decl.params.map((name, i) => [name, main.params[i]])),
+      result: main.result, end, led, devices, faults,
+      markers: allCode.filter(i => i.pc !== undefined).map(i => ({ register: i.pc!, line: i.line, label: i.label, context: i.context.name })),
+      stats: { instructions: allCode.length, contexts: contexts.length, functionInstances: contexts.flatMap(c => [...c.functions.keys()].map(n => `${c.name}.${n}`)) },
+    };
+    return optimizations.prune ? pruneArtifact(artifact, observedLed === undefined ? [] : [observedLed]) : artifact;
+  };
+  if (optimizations.counterMachine && contexts.length === 1 && mainContext.functions.size === 1 && !Object.keys(devices).length && !faults.length
+    && lowerCounterMachine(m, main.code, end, main.result, zero, optimizations, main.params)) return finish(main.code);
+
   const clock = Array.from({ length: 11 }, (_, i) => m.add(`clock.${i}`, 'control', 1, i === 0 ? 1 : 0));
   clock.forEach((id, i) => m.terms(id, [[clock[(i + 10) % 11], 1]]));
   const allCode = contexts.flatMap(c => c.code);
@@ -588,6 +611,15 @@ export function compile(source: string, options: CompileOptions = {}): Artifact 
     // PCs remain stable for the entire 11-update instruction period. Sample
     // the shared clock directly instead of allocating nine delay coordinates
     // for every instruction's execution pulse.
+    if (!optimizations.clockSampling) {
+      const execute = m.row(`instruction.${i.pc}.execute`, [[i.pc, 1], [clock[0], 1], [one, -1]], 1, i.context.name);
+      if (i.op === 'branch' || (i.op === 'ret' && !i.owner!.root)) i.preDispatch = m.delay(execute, 8, `instruction.${i.pc}.prepare`, 1, i.context.name);
+      if (i.op !== 'branch') {
+        i.dispatch = m.delay(execute, 9, `instruction.${i.pc}.phase`, 1, i.context.name);
+        m.terms(i.pc, [[i.dispatch, -1]]);
+      }
+      continue;
+    }
     if (i.op === 'ret' && !i.owner!.root) {
       i.preDispatch = m.row(`instruction.${i.pc}.prepareDispatch`, [[i.pc, 1], [clock[8], 1], [one, -1]], 1, i.context.name);
     }
@@ -609,13 +641,13 @@ export function compile(source: string, options: CompileOptions = {}): Artifact 
       if (a === b || a === zero) return zero;
       if (b === zero) return a;
       const key = `${a}:${b}`;
-      let result = differences.get(key);
+      let result = optimizations.predicateSharing ? differences.get(key) : undefined;
       if (result === undefined) { result = m.row(`${context.name}.compare.difference.${a}.${b}`, [[a, 1], [b, -1]], MAX_U32, context.name); differences.set(key, result); }
       return result;
     };
     const isZero = (a: number): number => {
       if (a === zero) return one;
-      let result = zeroTests.get(a);
+      let result = optimizations.predicateSharing ? zeroTests.get(a) : undefined;
       if (result === undefined) { result = m.row(`${context.name}.compare.zero.${a}`, [[one, 1], [a, -1]], 1, context.name); zeroTests.set(a, result); }
       return result;
     };
@@ -624,7 +656,7 @@ export function compile(source: string, options: CompileOptions = {}): Artifact 
       if (op === '==' || op === '!=') {
         if (b === zero && m.registers[a].bound <= 1) return { value: a, invert: op === '==' };
         const key = `${Math.min(a, b)}:${Math.max(a, b)}`;
-        let equal = equalities.get(key);
+        let equal = optimizations.predicateSharing ? equalities.get(key) : undefined;
         if (equal === undefined) {
           const p = difference(a, b), q = difference(b, a);
           equal = p === zero ? isZero(q) : q === zero ? isZero(p) : m.row(`${context.name}.compare.equal.${key}`, [[one, 1], [p, -1], [q, -1]], 1, context.name);
@@ -642,7 +674,7 @@ export function compile(source: string, options: CompileOptions = {}): Artifact 
       }
       const selected = [...readers].map(([value, pcs]) => {
         const register = m.registers[value];
-        if (register.kind === 'constant' && register.bound <= HALF) {
+        if (optimizations.constantOperands && register.kind === 'constant' && register.bound <= HALF) {
           // Constants are immutable: sample later and scale the selector in
           // one row, producing the same operand pulse at update five.
           const amount = register.bound;
@@ -691,8 +723,9 @@ export function compile(source: string, options: CompileOptions = {}): Artifact 
     for (const i of context.code) {
       if (i.op === 'branch') {
         const { value, invert } = predicate(i);
-        const on = m.row(`branch.${i.pc}.on`, [[i.pc!, 1], [clock[9], 1], [value, 1], [one, -2]], 1, context.name);
-        const off = m.row(`branch.${i.pc}.off`, [[i.pc!, 1], [clock[9], 1], [value, -1], [one, -1]], 1, context.name);
+        const selector: Terms = optimizations.clockSampling ? [[i.pc!, 1], [clock[9], 1], [one, -1]] : [[i.preDispatch!, 1]];
+        const on = m.row(`branch.${i.pc}.on`, [...selector, [value, 1], [one, -1]], 1, context.name);
+        const off = m.row(`branch.${i.pc}.off`, [...selector, [value, -1]], 1, context.name);
         const [yes, no] = invert ? [off, on] : [on, off];
         m.terms(i.pc!, [[yes, -1], [no, -1]]);
         route(yes, i.yes); route(no, i.no);
@@ -718,13 +751,5 @@ export function compile(source: string, options: CompileOptions = {}): Artifact 
       }
     }
   }
-  return pruneArtifact({
-    version: 1, name: options.name ?? 'Matrix program', source,
-    rows: m.rows.map(row => ({ cols: [...row.keys()], weights: [...row.values()] })),
-    registers: m.registers, initial: m.initial,
-    inputs: Object.fromEntries(main.decl.params.map((name, i) => [name, main.params[i]])),
-    result: main.result, end, led, devices, faults,
-    markers: allCode.map(i => ({ register: i.pc!, line: i.line, label: i.label, context: i.context.name })),
-    stats: { instructions: allCode.length, contexts: contexts.length, functionInstances: contexts.flatMap(c => [...c.functions.keys()].map(n => `${c.name}.${n}`)) },
-  }, observedLed === undefined ? [] : [observedLed]);
+  return finish(allCode);
 }
