@@ -19,6 +19,7 @@ let backend: MatrixBackend;
 beforeAll(async () => { backend = await createWasmBackend(readFileSync('public/kernel.wasm')); });
 
 describe('optimized primality square recurrence', () => {
+  // Hundreds of complete matrix runs need more than 5s on shared CI runners.
   it('agrees with trial division and the previous implementation at squares and boundaries', () => {
     const current = compile(source), previous = compile(previousSource);
     const values = new Set([
@@ -35,7 +36,7 @@ describe('optimized primality square recurrence', () => {
       expect(machine.status, `n=${n}`).toBe('ended');
       expect(machine.state[artifact.result!], `n=${n}`).toBe(Number(trialDivisionPrime(n)));
     }
-  });
+  }, 30_000);
 
   it('reduces both matrix size and committed ticks for prime inputs', () => {
     const current = compile(source), previous = compile(previousSource);

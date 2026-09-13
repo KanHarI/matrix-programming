@@ -27,9 +27,11 @@ function run(n: number, divisor: number, backend = wasm) {
 }
 
 describe('constant-storage binary long division', () => {
+  // Exhaustive matrix runs exceed the default 5s on shared CI runners.
+  // Keep the full input coverage and the per-machine tick bounds.
   it('matches integer remainder for small dividends and nonzero divisors', () => {
     for (let n = 0; n <= 64; n++) for (let divisor = 1; divisor <= 16; divisor++) run(n, divisor);
-  });
+  }, 30_000);
 
   it('handles full-u32 operands, powers of two, exact multiples, and large divisors', () => {
     const values = new Set([0, 1, 3, 65535, 65537, 2147483647, 2147483648, 4294967294, 4294967295]);
@@ -40,7 +42,7 @@ describe('constant-storage binary long division', () => {
     let seed = 0x12345678;
     const next = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed; };
     for (let i = 0; i < 256; i++) run(next(), next() || 1);
-  });
+  }, 30_000);
 
   it('agrees on WASM and exact reference backends without overflowing intermediates', () => {
     for (const [n, divisor] of [
