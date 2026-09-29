@@ -26,6 +26,11 @@ npm run dev
 
 Open the local URL printed by Vite. The page opens on the **Presets** gallery, with
 parity already compiled (input 4, paused at tick zero); `?preset=<id>` links open Run.
+**Take the tour** (`/tour.html`) is a guided, animated introduction: 20 chapters,
+including an in-depth walk through Inspect. Advance with **Next** (or ←/→) at your
+own pace, or press Play to watch it as a movie. A side tour
+(`/tour.html?tour=clock`) takes apart the 11-phase clock. Every matrix, vector,
+program counter and pixel shown is computed live by the real compiler and runtime.
 Use **Presets** to pick an example from the gallery, **Program** to edit its source, **Run** for
 the matrix and devices, and **Inspect** for coefficients, vectors, and the same
 source editor. Switching tabs preserves execution and edits.

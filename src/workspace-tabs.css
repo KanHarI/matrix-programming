@@ -18,3 +18,10 @@
 .masthead .repo-link{display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;color:#d6e5d7}.masthead .repo-link:hover{color:#fff}.repo-link svg{display:block;flex-shrink:0}
 @media(max-width:1000px){.inspect-tab-layout{grid-template-columns:minmax(0,1fr)}.inspect-source .source-panel{position:static}}
 @media(max-width:520px){.workspace-tabs{width:100%;gap:2px;padding:4px}.workspace-tabs [role=tab]{flex:1;min-width:0;padding:8px 5px;font-size:12px}.run-inputs{padding:12px 14px}.matrix-copy-tools{width:100%}.matrix-copy-tools button{min-height:44px;flex:1;font-size:11px}#copy-feedback{flex-basis:100%}#app-panel-program .editor-wrap{height:400px}}
+.masthead-links{display:flex;align-items:center;gap:14px}
+.masthead .tour-link{padding:7px 12px;border:1px solid #3d5650;border-radius:6px;color:#d6e5d7;font-size:13px;text-decoration:none;white-space:nowrap}
+.masthead .tour-link:hover{border-color:#739688;color:#fff}
+.masthead .tour-link span{margin-left:4px;color:var(--lime);font-size:10px}
+.masthead .tour-link-short{display:none}
+.preset-intro a{color:var(--teal);font-weight:600}
+@media(max-width:520px){.masthead-links{gap:6px}.masthead .tour-link{padding:6px 9px;font-size:12px}.masthead .tour-link-full{display:none}.masthead .tour-link-short{display:inline}}
