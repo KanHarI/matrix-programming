@@ -59,4 +59,18 @@ describe('Chevrotain source parser', () => {
   it('reports a useful line at the end of an incomplete program', () => {
     expect(() => parse('fn main() {\n  return 1;\n')).toThrow(/Line 3, column 1/);
   });
+  it('describes syntax errors with source symbols, not parser token names', () => {
+    expect(() => parse('fn main() {\n  return 1;\n')).toThrow("Line 3, column 1: Expected '}' but found the end of the file");
+    expect(() => parse('fn main() { return 1; } garbage')).toThrow("Unexpected 'garbage' after the last function");
+    expect(() => parse('fn main() { return ; }')).toThrow("Expected an expression but found ';'");
+    expect(() => parse('fn main() { let = 1; }')).toThrow(/Line 1, column \d+: Expected .* but found '='/);
+    expect(() => parse('fn main() { while n > 0 { } }')).toThrow("Expected '(' but found 'n'");
+    expect(() => parse('fn main() { return 1; }\nlet')).not.toThrow(/-->|<--|token of type/);
+  });
+  it('reports a missing semicolon at the end of the statement that needs it', () => {
+    const source = 'fn main(n) {\n  let a = 0;\n  let b = 1\n  while (n > 0) { n = n - 1; }\n  return a;\n}';
+    expect(() => parse(source)).toThrow("Line 3, column 12: Missing ';' after '1' (found 'while' on line 4)");
+    // On the same line, the error stays at the unexpected token.
+    expect(() => parse('fn main() { let a = 0 let b = 1; return a; }')).toThrow("Line 1, column 23: Expected ';' but found 'let'");
+  });
 });

@@ -40,6 +40,8 @@
 .matrix-navigation label, .matrix-search-label { display: flex; flex-direction: column; gap: 6px; font-size: 10px; color: var(--muted); }
 .matrix-navigation input { width: 100px; font: 11px var(--mono); }
 .matrix-navigation button, .matrix-pagination button, .matrix-exports button { font-size: 10px; }
+.matrix-page-size { display: flex; align-items: center; gap: 6px; margin-left: auto; font-size: 11px; color: var(--muted); }
+.matrix-page-size select { padding: 6px 8px; font-size: 11px; }
 #matrix-range { font: 9px/1.7 var(--mono); flex-basis: 100%; }
 .matrix-search-label { margin: 15px 0 8px; }
 .matrix-search-label input { font: 11px var(--mono); width: 100%; }

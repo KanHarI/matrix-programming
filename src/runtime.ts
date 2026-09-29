@@ -75,6 +75,8 @@ export class Machine {
   status: Status = 'ready';
   tick = 0;
   error: string | null = null;
+  /** Coordinate whose candidate value caused the fault, when one is responsible. */
+  faultRegister: number | null = null;
   consoleText = '';
   pixels = new Uint8Array(16 * 16 * 3);
   events: DeviceEvent[] = [];
@@ -108,6 +110,7 @@ export class Machine {
     this.status = state[this.artifact.end] ? 'ended' : 'ready';
     this.tick = 0;
     this.error = null;
+    this.faultRegister = null;
     this.consoleText = '';
     this.pixels.fill(0);
     this.events = [];
@@ -130,10 +133,15 @@ export class Machine {
     if (this.status === 'waiting') this.status = 'ready';
   }
 
-  private fail(message: string): false {
+  private fail(message: string, register: number | null = null): false {
     this.status = 'fault';
     this.error = message;
+    this.faultRegister = register;
     return false;
+  }
+  private overflow(register: number, value: bigint): false {
+    const { name, bound } = this.artifact.registers[register]!;
+    return this.fail(`Register ${name} exceeds its ${bound} bound (${value})`, register);
   }
 
   private multiply(): boolean {
@@ -159,18 +167,18 @@ export class Machine {
     let next: Uint32Array;
     if (fast && this.backend.rectify) {
       const result = this.backend.rectify(this.artifact, this.raw!);
-      if (result.invalid >= 0) return this.fail(`Register ${this.artifact.registers[result.invalid]!.name} exceeds its ${this.artifact.registers[result.invalid]!.bound} bound`);
+      if (result.invalid >= 0) return this.overflow(result.invalid, this.raw![result.invalid]!);
       next = result.next;
     } else {
       next = new Uint32Array(this.state.length);
       for (let i = 0; i < next.length; i++) {
         const value = this.candidate?.[i] ?? (this.raw![i]! < 0n ? 0n : this.raw![i]!);
-        if (value > BigInt(this.artifact.registers[i]!.bound)) return this.fail(`Register ${this.artifact.registers[i]!.name} exceeds its ${this.artifact.registers[i]!.bound} bound (${value})`);
+        if (value > BigInt(this.artifact.registers[i]!.bound)) return this.overflow(i, value);
         next[i] = Number(value);
       }
     }
     const fault = this.artifact.faults?.find(fault => next[fault.register]! > 0);
-    if (fault) return this.fail(fault.message);
+    if (fault) return this.fail(fault.message, fault.register);
     const output = this.artifact.devices.consoleOutput;
     if (output && next[output.emit] && !validScalar(next[output.codepoint]!)) return this.fail('Console output is not a valid Unicode scalar value');
     const screen = this.artifact.devices.screen;

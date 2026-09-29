@@ -3,7 +3,10 @@ import './execution-workspace.css';
 import './matrix-inspector.css';
 import './workspace-tabs.css';
 import './compiler-options.css';
+import './debugger.css';
 import { matrixPython, vectorPython } from './matrix-copy';
+import { activeMarkers, breakpointCondition, diagnosticLine, lineStepCondition, markerLines, stateChanges, type StopCondition, type StopReason } from './debugger';
+import { InstructionList } from './instruction-list';
 import { compile } from './compiler';
 import { optimizationDefinitions, resolveOptimizations, type OptimizationFlags, type OptimizationKey } from './compiler-options';
 import { examples } from './examples';
@@ -16,7 +19,8 @@ const app = document.querySelector<HTMLDivElement>('#app')!;
 app.innerHTML = `
   <header class="masthead">
     <a class="brand" href="./" aria-label="Matrix Lab home"><span class="brand-icon" aria-hidden="true">▦</span> MATRIX <strong>LAB</strong><span class="version">early preview</span></a>
-    <a class="repo-link" href="https://github.com/KanHarI/matrix-programming" target="_blank" rel="noreferrer" aria-label="GitHub repository" title="Source and design on GitHub"><svg viewBox="0 0 16 16" width="24" height="24" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg></a>
+    <nav class="masthead-links" aria-label="Site"><a class="tour-link" href="./tour.html"><span class="tour-link-full">Take the tour</span><span class="tour-link-short">Tour</span> <span aria-hidden="true">▶</span></a>
+    <a class="repo-link" href="https://github.com/KanHarI/matrix-programming" target="_blank" rel="noreferrer" aria-label="GitHub repository" title="Source and design on GitHub"><svg viewBox="0 0 16 16" width="24" height="24" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg></a></nav>
   </header>
   <main>
     <section class="intro">
@@ -25,12 +29,12 @@ app.innerHTML = `
     </section>
     <div class="workspace">
       <section class="panel source-panel" aria-labelledby="program-heading">
-        <div class="panel-heading"><h2 id="program-heading"><span class="section-number">01</span> Program</h2><span class="language-label">MATRIX SOURCE</span></div>
-        <div class="program-picker"><label for="example">Start with an example</label><select id="example"></select><p id="description"></p></div>
+        <div class="panel-heading"><h2 id="program-heading">Program</h2><span class="language-label">MATRIX SOURCE</span></div>
+        <div class="program-picker"><div class="preset-intro"><h2 id="preset-heading">Choose a program</h2><p>Each preset compiles to its own fixed matrix. Choosing one opens its source in Program; <strong>Compile &amp; reset</strong> then opens Run, paused at tick 0. New here? <a href="./tour.html">Take the two-minute guided tour</a>.</p></div><div id="preset-gallery" class="preset-gallery" role="list" aria-labelledby="preset-heading"></div></div>
         <div id="parameters" class="parameters"></div>
         <div class="editor-heading"><span>source.matrix</span><span id="active-source">No active instruction</span></div>
         <div class="editor-wrap"><div id="line-numbers" aria-hidden="true"></div><textarea id="source" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="Program source"></textarea></div>
-        <div class="editor-footer"><span id="dirty">Ready to compile</span><button id="compile" class="primary">Compile & reset <span aria-hidden="true">↗</span></button></div>
+        <div class="editor-footer"><span id="dirty">Ready to compile</span><button id="compile" class="primary" title="Compile, reset to tick 0, and open Run (Ctrl/⌘ + Enter)">Compile & reset <span aria-hidden="true">↗</span></button></div>
         <div id="error" class="error" role="alert" hidden></div>
         <details class="device-config"><summary>Optional devices <span>Only used devices add coordinates</span></summary><div class="device-checks"><label><input type="checkbox" id="enable-led" checked /> Result LED</label><label><input type="checkbox" id="enable-output" checked /> Console output</label><label><input type="checkbox" id="enable-input" checked /> Console input</label><label><input type="checkbox" id="enable-screen" checked /> 16 × 16 screen</label></div><p>The end gate is always available. Console and screen changes apply on compile. The LED toggles immediately, observes a coordinate, and adds no matrix rows.</p></details>
         <details class="compiler-config"><summary>Compiler options <span id="optimization-summary"></span></summary><p class="optimization-intro">Compare how each optimization changes the matrix. Selections apply only with <strong>Compile &amp; reset</strong> and stay selected when switching presets. A pass only affects programs or compiler paths it supports.</p><div class="optimization-actions" role="group" aria-label="Set compiler optimizations"><button id="optimizations-enable-all" type="button">Enable all</button><button id="optimizations-disable-all" type="button">Disable all</button><button id="optimizations-defaults" type="button">Restore defaults</button></div><div id="optimization-groups" class="optimization-groups"></div><p class="optimization-pending-note">Changing flags does not modify the currently compiled matrix. Matrix size, execution time, and intermediate vectors may change after compilation. Loop summarization is off by default because it changes the stepping trace.</p></details>
@@ -38,18 +42,18 @@ app.innerHTML = `
       <div class="machine-column">
         <section class="panel machine-panel" aria-labelledby="machine-heading">
           <div class="panel-heading"><h2 id="machine-heading">Execution</h2><span id="backend" class="backend">Loading WASM…</span></div>
-          <div class="machine-stats"><div><strong id="dimensions">—</strong><span>matrix dimensions</span></div><div><strong id="nonzero">—</strong><span>nonzero weights</span></div><div><strong id="contexts">—</strong><span>execution contexts</span></div><div><strong id="tick">0</strong><span>committed ticks</span></div></div>
-          <div class="transport"><div class="transport-buttons"><button id="phase-step" class="primary">Multiply →</button><button id="step">Full tick</button><button id="run">▶ Run</button><button id="reset" class="icon-button" aria-label="Reset execution" title="Reset execution">↺</button></div><span id="status" class="status">Not compiled</span></div>
+          <div class="machine-stats"><div><strong id="dimensions">—</strong><span>matrix</span></div><div><strong id="nonzero">—</strong><span>nonzero</span></div><div><strong id="contexts">—</strong><span>contexts</span></div><div><strong id="tick">0</strong><span>ticks</span></div></div>
+          <div class="transport"><div class="transport-buttons"><button id="phase-step" class="primary" data-key="." aria-keyshortcuts="." title="Next phase: Multiply, Apply ReLU, then Commit (.)">Multiply →</button><button id="step" data-key="T" aria-keyshortcuts="t" title="Commit one complete matrix update (T)">Full tick</button><button id="step-line" data-key="L" aria-keyshortcuts="l" title="Run until execution reaches a different source line (L)">Step line</button><button id="run" data-key="R" aria-keyshortcuts="r" title="Run or pause; stops at breakpoints (R)">▶ Run</button><button id="reset" class="icon-button" aria-label="Reset execution" title="Reset execution">↺</button></div><span class="status-group"><span id="status" class="status">Not compiled</span><span id="pause-reason" class="pause-reason" role="status" hidden></span></span></div>
           <div class="phase-track" aria-label="Execution phases"><div data-phase="ready"><b>1</b><span>Current state<small>xₜ · unsigned 32-bit</small></span></div><i>→</i><div data-phase="multiplied"><b>2</b><span>Multiply<small>W xₜ · signed sums</small></span></div><i>→</i><div data-phase="rectified"><b>3</b><span>Apply ReLU<small>max(0, sum)</small></span></div></div>
           <p id="phase-explanation" class="phase-explanation">Compile a program to inspect its matrix.</p>
           <div id="active-contexts" class="active-contexts" aria-label="Active execution contexts"></div>
         </section>
         <section class="panel inspector-panel" aria-labelledby="inspector-heading">
-          <div class="panel-heading"><h2 id="inspector-heading"><span class="section-number">03</span> Look inside</h2><div class="view-tabs"><button id="vector-tab" class="selected" aria-pressed="true">Vector</button><button id="matrix-tab" aria-pressed="false">Matrix</button></div></div>
+          <div class="panel-heading"><h2 id="inspector-heading">Matrix and state</h2><div class="view-tabs"><button id="vector-tab" class="selected" aria-pressed="true">Vector</button><button id="matrix-tab" aria-pressed="false">Matrix</button></div></div>
           <div class="inspector-toolbar"><input id="filter" type="search" placeholder="Find a coordinate…" aria-label="Filter coordinates" /><label><input id="internals" type="checkbox" /> Internal circuitry</label><label><input id="changed" type="checkbox" /> Changed only</label></div>
           <div id="vector-view"><div class="vector-scroll"><table><thead><tr><th scope="col">Coordinate</th><th scope="col">Current xₜ</th><th scope="col">Before ReLU</th><th scope="col">After ReLU</th></tr></thead><tbody id="vector-body"></tbody></table></div><div class="table-footer"><span id="visible-count">No coordinates yet</span><span><i class="legend-negative"></i> negative <i class="legend-clipped"></i> clamped to zero</span></div></div>
           <div id="matrix-view"><div id="matrix-inspector"></div><details class="matrix-overview"><summary>Sparsity overview</summary><div class="matrix-explanation"><p>Overview of <strong>W</strong>: every dot is a nonzero weight. At this scale several cells may overlap. Inspect exact values in the grid above.</p><span><i class="legend-positive"></i> positive <i class="legend-negative"></i> negative</span></div><canvas id="matrix-canvas" width="640" height="400" aria-label="Sparse matrix weight visualization"></canvas><p id="matrix-hover">Click the overview to navigate to a row and column.</p></details></div>
-          <div class="row-detail"><p class="eyebrow">FOLLOW THE CALCULATION</p><h3 id="row-name">Select a coordinate</h3><div id="row-calculation">Click any vector row to see exactly where its next value comes from.</div></div>
+          <div class="row-detail"><p class="eyebrow">FOLLOW THE CALCULATION</p><h3 id="row-name">Select a coordinate</h3><div id="row-meta" class="row-meta"></div><div id="row-calculation">Click any vector row to see exactly where its next value comes from.</div></div>
         </section>
         <section class="outputs" aria-label="Output devices">
           <div class="panel console-panel"><div class="panel-heading"><h2><span class="terminal-mark" aria-hidden="true">&gt;_</span> Console</h2><span id="console-badge" class="device-badge">not linked</span></div><pre id="console-output" role="log" aria-live="polite" aria-label="Console output"></pre><form id="console-form"><input id="console-input" aria-label="Console input" placeholder="Type input, then press Enter" autocomplete="off" /><button id="send-input" type="submit" aria-label="Send console input">↵</button><button id="send-eof" type="button" title="Signal end of input">EOF</button></form><p id="input-hint" class="input-hint">Input is delivered only when the matrix requests it.</p></div>
@@ -64,7 +68,6 @@ app.innerHTML = `
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T;
 const source = $<HTMLTextAreaElement>('source');
-const picker = $<HTMLSelectElement>('example');
 const optimizationInputs = new Map<OptimizationKey, HTMLInputElement>();
 buildCompilerOptions();
 
@@ -141,11 +144,10 @@ vectorSection.append(vectorHeading, document.querySelector('.inspector-toolbar')
 objects.append($('matrix-view'), vectorSection);
 inspectorPanel.append(objects);
 const debug = document.createElement('section'); debug.className = 'panel detail-panel';
-const detailTitle = document.createElement('h2'); detailTitle.textContent = 'Row calculation & execution history'; debug.append(detailTitle, document.querySelector('.row-detail')!, document.querySelector('.history-panel')!);
+const detailTitle = document.createElement('h2'); detailTitle.textContent = 'Row calculation & execution history'; debug.append(detailTitle, document.querySelector('.phase-track')!, $('phase-explanation'), $('active-contexts'), document.querySelector('.row-detail')!, document.querySelector('.history-panel')!);
 const below = document.createElement('div'); below.className = 'below-debug-layout'; below.append(document.querySelector('.source-panel')!, debug);
 const presets = document.createElement('section'); presets.className = 'panel preset-strip'; presets.setAttribute('aria-label', 'Program preset and inputs');
 presets.append(below.querySelector('.program-picker')!, below.querySelector('#parameters')!);
-debug.prepend(document.querySelector('.phase-track')!, $('phase-explanation'), $('active-contexts'));
 const machineColumn = document.querySelector('.machine-column')!;
 const mathPanel = document.createElement('section'); mathPanel.className = 'panel'; mathPanel.id = 'math-overview'; mathPanel.setAttribute('aria-label', 'Mathematical matrix and vector overview');
 const executionWorkspace = document.createElement('section');
@@ -157,7 +159,9 @@ runInputs.append(presets.querySelector('#parameters')!);
 const copyTools = document.createElement('div'); copyTools.className = 'matrix-copy-tools';
 copyTools.innerHTML = '<button id="copy-matrix-python" type="button" title="Copy every weight in W as a nested integer list, compatible with Python and JavaScript">Copy matrix to Python</button><button id="copy-input-vector" type="button" title="Copy the current committed vector xₜ, the input to the next multiplication—not a preview">Copy input vector</button><span id="copy-feedback" role="status" aria-live="polite"></span>';
 runInputs.append(copyTools);
-executionControls.append(document.querySelector('.machine-panel')!, runInputs);
+// The transport stays reachable while scrolling through W, x and the row calculation.
+const toolbar = document.querySelector<HTMLElement>('.machine-panel')!; toolbar.classList.add('debug-toolbar');
+executionControls.append(runInputs);
 executionWorkspace.append(executionControls, mathPanel);
 const sourcePanel = below.querySelector<HTMLElement>('.source-panel')!;
 const outputDevices = document.querySelector<HTMLElement>('.outputs')!;
@@ -182,8 +186,9 @@ for (const name of appTabs) {
 }
 const inspectControls = document.createElement('div'); inspectControls.className = 'execution-workspace inspect-execution';
 const inspectLayout = document.createElement('div'); inspectLayout.className = 'inspect-tab-layout';
-const inspectDetails = document.createElement('div'); inspectDetails.className = 'inspect-details'; inspectDetails.append(inspectorPanel, debug);
-const inspectSource = document.createElement('div'); inspectSource.className = 'inspect-source';
+const inspectDetails = document.createElement('div'); inspectDetails.className = 'inspect-details'; inspectDetails.append(inspectorPanel);
+const instructionsPanel = document.createElement('section');
+const inspectSource = document.createElement('div'); inspectSource.className = 'inspect-source'; inspectSource.append(debug, instructionsPanel);
 inspectLayout.append(inspectDetails, inspectSource);
 tabPanels.get('presets')!.append(presets);
 tabPanels.get('program')!.append(sourcePanel);
@@ -209,17 +214,40 @@ function selectAppTab(name: AppTab, update = true): void {
   (name === 'inspect' ? inspectSource : tabPanels.get('program')!).append(sourcePanel);
   if (name === 'inspect') inspectControls.append(executionControls);
   else executionWorkspace.prepend(executionControls);
+  if (name === 'run' || name === 'inspect') tabPanels.get(name)!.prepend(toolbar);
   if (update) render();
 }
 selectAppTab('run', false);
 machineColumn.remove();
-const mathOverview = new MathOverview(mathPanel, row => {
-  selectAppTab('inspect');
-  matrixInspector.inspect(row, 0);
-});
+const mathOverview = new MathOverview(mathPanel, row => inspectRegister(row));
 const matrixInspector = new MatrixInspector($('matrix-inspector'), row => {
   selectedRow = row; expandedTerms = false; renderVector(); renderCalculation(); renderMatrix();
 });
+const instructionList = new InstructionList(instructionsPanel, {
+  toggleBreakpoint: line => toggleBreakpoint(line),
+  inspectRegister: register => inspectRegister(register),
+  revealLine: line => revealLine(line),
+});
+/** Open a coordinate's exact row calculation and bring it into view. */
+function inspectRegister(row: number): void {
+  selectAppTab('inspect');
+  matrixInspector.inspect(row, 0);
+  const detail = document.querySelector<HTMLElement>('.row-detail')!;
+  // Smooth scrolling is frame-driven and would stall in a hidden tab.
+  detail.scrollIntoView({ block: 'start', behavior: document.hidden || matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  detail.classList.remove('row-detail-flash'); void detail.offsetWidth; detail.classList.add('row-detail-flash');
+}
+/** Select and scroll to a source line in the editor; move keyboard focus only when asked. */
+function revealLine(line: number, focus = false, fallback: 'inspect' | 'program' = 'inspect'): void {
+  if (activeTab !== 'inspect' && activeTab !== 'program') selectAppTab(fallback);
+  const lines = source.value.split('\n');
+  const start = lines.slice(0, Math.max(0, line - 1)).reduce((sum, text) => sum + text.length + 1, 0);
+  if (focus) source.focus();
+  source.setSelectionRange(start, start + (lines[line - 1]?.length ?? 0));
+  const lineHeight = parseFloat(getComputedStyle(source).lineHeight) || 20;
+  source.scrollTop = Math.max(0, (line - 1) * lineHeight - source.clientHeight / 3);
+  updateGutter();
+}
 let artifact: Artifact | undefined;
 let machine: Machine | undefined;
 let backend: Awaited<ReturnType<typeof createWasmBackend>> | undefined;
@@ -228,7 +256,8 @@ let selectedRow = 0;
 let matrixView = true;
 let lastRender = 0;
 let lastRecordedTick = -1;
-let history: { tick: number; result: number | undefined; active: string; changes: number }[] = [];
+let history: { tick: number; result: number | undefined; active: string; changes: number; detail: string }[] = [];
+let displayedFault: string | undefined;
 let previousState: Uint32Array | undefined;
 let recentChanges = new Set<number>();
 let needsCompile = false;
@@ -237,25 +266,100 @@ let expandedTerms = false;
 let batchSize = 256;
 let playIntent = false;
 let composingInput = false;
-let animationFrame: number | undefined;
+let frame: { kind: 'animation' | 'timeout'; id: number } | undefined;
+// Source lines where Run and Step line pause when one of the line's instructions begins.
+const breakpoints = new Set<number>();
+let playMode: 'run' | 'line' = 'run';
+let stopCondition: StopCondition | undefined;
+let pauseReason = '';
+let errorLine: number | undefined;
 
-function stop(): void { running = false; playIntent = false; if (animationFrame !== undefined) cancelAnimationFrame(animationFrame); animationFrame = undefined; }
-function beginPlaying(): void {
-  if (!machine || needsCompile || invalidParameters || machine.status === 'ended' || machine.status === 'fault') return;
-  playIntent = true;
-  if (!running) { running = true; render(); animationFrame = requestAnimationFrame(runFrame); }
+function cancelFrame(): void {
+  if (frame?.kind === 'animation') cancelAnimationFrame(frame.id);
+  else if (frame) clearTimeout(frame.id);
+  frame = undefined;
 }
-function setError(error?: unknown): void {
-  $('error').hidden = !error;
-  $('error').textContent = error instanceof Error ? error.message : error ? String(error) : '';
+// Animation frames never fire in a hidden tab; a started run keeps progressing on timers.
+function scheduleFrame(): void {
+  cancelFrame();
+  frame = document.hidden ? { kind: 'timeout', id: window.setTimeout(() => runFrame(performance.now()), 0) } : { kind: 'animation', id: requestAnimationFrame(runFrame) };
+}
+function stop(): void { running = false; playIntent = false; stopCondition = undefined; cancelFrame(); }
+function describeStop(reason: StopReason): string {
+  return reason.kind === 'breakpoint' ? `Breakpoint · line ${reason.line}` : `Line ${reason.lines.join(', ')}`;
+}
+function watchConditions(): StopCondition | undefined {
+  if (!artifact || !machine) return undefined;
+  const conditions = [breakpointCondition(artifact, breakpoints, machine.state), playMode === 'line' ? lineStepCondition(artifact, machine.state) : undefined].filter((condition): condition is StopCondition => Boolean(condition));
+  if (!conditions.length) return undefined;
+  // Every condition observes every commit, so breakpoint edge detection stays current.
+  return state => conditions.map(condition => condition(state)).find(Boolean);
+}
+function beginPlaying(mode?: 'run' | 'line'): void {
+  if (!machine || needsCompile || invalidParameters || machine.status === 'ended' || machine.status === 'fault') return;
+  if (mode) playMode = mode;
+  playIntent = true; pauseReason = '';
+  if (!running) { running = true; stopCondition = watchConditions(); render(); scheduleFrame(); }
+}
+function setError(error?: unknown, actions: HTMLElement[] = []): void {
+  const container = $('error');
+  const message = error instanceof Error ? error.message : error ? String(error) : '';
+  container.hidden = !error;
+  const text = document.createElement('p'); text.className = 'error-message'; text.textContent = message;
+  const row = document.createElement('div'); row.className = 'error-actions'; row.append(...actions); row.hidden = !actions.length;
+  container.replaceChildren(text, row);
+  displayedFault = undefined;
+}
+function actionButton(label: string, onClick: () => void): HTMLButtonElement {
+  const button = document.createElement('button'); button.type = 'button'; button.textContent = label;
+  button.addEventListener('click', onClick);
+  return button;
+}
+/** Compiler/parser diagnostics link to their line; runtime faults link to their source and coordinate. */
+function showError(error: unknown): void {
+  const message = error instanceof Error ? error.message : String(error);
+  errorLine = diagnosticLine(message);
+  setError(error, errorLine === undefined ? [] : [actionButton(`Show line ${errorLine}`, () => revealLine(errorLine!, true, 'program'))]);
+}
+function showFault(): void {
+  if (!machine?.error || !artifact) return;
+  const actions: HTMLElement[] = [];
+  const markers = activeMarkers(artifact, machine.state);
+  if (markers.length) {
+    const where = document.createElement('span'); where.className = 'error-location';
+    where.textContent = `While executing ${markers.slice(0, 3).map(marker => `line ${marker.line} (${marker.context}: ${marker.label})`).join(', ')}`;
+    actions.push(where, actionButton(`Show line ${markers[0]!.line}`, () => revealLine(markers[0]!.line)));
+  }
+  const register = machine.faultRegister;
+  if (register !== null) actions.push(actionButton(`Inspect ${artifact.registers[register]!.name}`, () => inspectRegister(register)));
+  setError(machine.error, actions);
+  displayedFault = machine.error;
+}
+function toggleBreakpoint(line: number): void {
+  if (breakpoints.has(line)) breakpoints.delete(line); else breakpoints.add(line);
+  // A run in progress watches the new set from its current state onward.
+  if (running) stopCondition = watchConditions();
+  updateGutter(); renderBreakpoints();
+}
+function renderBreakpoints(): void {
+  instructionList.render(needsCompile ? undefined : artifact, machine?.state, breakpoints);
 }
 function updateGutter(): void {
-  const active = new Set(artifact && machine && !needsCompile ? artifact.markers.filter(marker => machine!.state[marker.register] !== 0).map(marker => marker.line) : []);
+  const compiled = artifact && machine && !needsCompile;
+  const active = new Set(compiled ? activeMarkers(artifact!, machine!.state).map(marker => marker.line) : []);
+  const breakable = compiled ? markerLines(artifact!) : new Set<number>();
   const gutter = $('line-numbers');
   gutter.replaceChildren(...source.value.split('\n').map((_, index) => {
+    const number = index + 1;
     const line = document.createElement('span');
-    line.textContent = String(index + 1);
-    if (active.has(index + 1)) line.className = 'active-line';
+    line.textContent = String(number);
+    line.classList.toggle('active-line', active.has(number));
+    line.classList.toggle('breakable', breakable.has(number));
+    line.classList.toggle('breakpoint', breakpoints.has(number));
+    line.classList.toggle('breakpoint-unbound', breakpoints.has(number) && Boolean(compiled) && !breakable.has(number));
+    line.classList.toggle('error-line', errorLine === number);
+    line.dataset.line = String(number);
+    line.title = breakpoints.has(number) ? (compiled && !breakable.has(number) ? 'Breakpoint without a compiled instruction on this line · click to remove' : 'Breakpoint · click to remove') : breakable.has(number) ? 'Click to pause when this line starts (F9)' : '';
     return line;
   }));
   gutter.scrollTop = source.scrollTop;
@@ -295,9 +399,10 @@ function compileProgram(): void {
     renderParameters(validInputs);
     resetHistory();
     selectedRow = result.result ?? result.end;
+    errorLine = undefined; pauseReason = '';
     $('dirty').textContent = 'Compiled · fixed sparse matrix';
   } catch (error) {
-    setError(error);
+    showError(error);
     // Never let an invalid editor buffer appear to be the running program.
     machine = undefined;
     artifact = undefined;
@@ -337,10 +442,11 @@ function resetParameters(): void {
   }
   render();
 }
-function chooseExample(): void {
-  const example = examples.find(item => item.id === picker.value) ?? examples[0]!;
+function chooseExample(id: string): void {
+  const example = examples.find(item => item.id === id) ?? examples[0]!;
   source.value = example.source;
-  $('description').textContent = example.description;
+  // Breakpoints belong to the previous program's lines.
+  breakpoints.clear();
   renderParameters(example.inputs);
   source.scrollTop = 0;
   // Presets describe actual linked hardware, not the last preset's allowances.
@@ -352,30 +458,54 @@ function chooseExample(): void {
     $<HTMLInputElement>('enable-led').checked = preset.led !== undefined;
   } catch (error) { setError(error); }
   compileProgram();
-  selectAppTab('run');
+  // Read the source first; Compile & reset continues to Run.
+  selectAppTab('program');
+}
+/** From Program, a successful compile continues to Run; an error stays beside the source. */
+function compileFromEditor(): void {
+  compileProgram();
+  if (activeTab === 'program' && artifact && !needsCompile) selectAppTab('run');
 }
 
 function execute(action: () => unknown): void {
   if (!machine) return;
-  setError();
+  setError(); pauseReason = '';
   try { action(); } catch (error) { stop(); setError(error); }
   if (machine.status !== 'ready') stop();
   render();
 }
 function runFrame(time: number): void {
-  animationFrame = undefined;
+  frame = undefined;
   if (!running || !machine) return;
+  let reason: StopReason | undefined;
   try {
     const start = performance.now();
-    machine.runBatch(batchSize);
+    if (stopCondition) {
+      for (let i = 0; i < batchSize && machine.step(); i++) {
+        reason = stopCondition(machine.state);
+        if (reason) break;
+      }
+    } else machine.runBatch(batchSize);
     // Target short batches so even a much larger edited matrix remains pausable.
+    // Hidden tabs wake rarely, so each wake-up does more work.
     const elapsed = Math.max(performance.now() - start, 0.5);
-    batchSize = Math.max(8, Math.min(2048, Math.round(batchSize * 8 / elapsed)));
-    if (machine.status === 'waiting') running = false;
+    const target = document.hidden ? 250 : 8;
+    batchSize = Math.max(8, Math.min(document.hidden ? 1 << 20 : 2048, Math.round(batchSize * target / elapsed)));
+    if (reason) { stop(); pauseReason = describeStop(reason); }
+    else if (machine.status === 'waiting') running = false;
     else if (machine.status !== 'ready') stop();
   } catch (error) { stop(); setError(error); }
-  if (!running || time - lastRender > 90) { render(); lastRender = time; }
-  if (running) animationFrame = requestAnimationFrame(runFrame);
+  if (!running || (!document.hidden && time - lastRender > 90)) { render(); lastRender = time; }
+  if (reason) followExecution();
+  if (running) scheduleFrame();
+}
+/** After a line step or breakpoint, show where execution paused. */
+function followExecution(): void {
+  if (!artifact || !machine) return;
+  const line = activeMarkers(artifact, machine.state)[0]?.line;
+  if (line === undefined) return;
+  if (activeTab === 'inspect' || activeTab === 'program') revealLine(line);
+  instructionList.focusLine(line);
 }
 
 function addCell(row: HTMLTableRowElement, text: string, className = ''): HTMLTableCellElement {
@@ -388,10 +518,11 @@ function renderVector(): void {
   const filter = $<HTMLInputElement>('filter').value.toLowerCase();
   const internals = $<HTMLInputElement>('internals').checked;
   const changed = $<HTMLInputElement>('changed').checked;
-  let matching = 0;
+  let matching = 0, hidden = 0;
   const fragments = document.createDocumentFragment();
   artifact.registers.forEach((register, index) => {
-    if (!internals && artifact!.registers.length > 64 && (register.kind === 'temporary' || register.kind === 'control' || register.kind === 'constant' || register.name.includes('.$')) && index !== artifact!.end && index !== selectedRow) return;
+    // A typed search is explicit: it also finds compiler-internal circuitry.
+    if (!filter && !internals && artifact!.registers.length > 64 && (register.kind === 'temporary' || register.kind === 'control' || register.kind === 'constant' || register.name.includes('.$')) && index !== artifact!.end && index !== selectedRow) { hidden++; return; }
     if (filter && !`${register.name} ${index} ${register.context ?? ''}`.toLowerCase().includes(filter)) return;
     const candidate = machine!.candidate?.[index];
     const current = machine!.state[index]!;
@@ -416,7 +547,7 @@ function renderVector(): void {
     fragments.append(row);
   });
   body.append(fragments);
-  $('visible-count').textContent = `${Math.min(matching, 160)} of ${matching} matching · ${artifact.registers.length} total${matching > 160 ? ' · narrow the filter to see more' : ''}`;
+  $('visible-count').textContent = `${Math.min(matching, 160)} of ${matching} matching · ${artifact.registers.length} total${matching > 160 ? ' · narrow the filter to see more' : ''}${hidden ? ` · ${hidden} internal hidden` : ''}`;
 }
 
 function renderCalculation(): void {
@@ -426,6 +557,7 @@ function renderCalculation(): void {
   const row = artifact.rows[selectedRow];
   if (!register || !row) return;
   $('row-name').textContent = `[${selectedRow}] ${register.name}`;
+  renderRowMeta(register);
   details.replaceChildren();
   const terms = document.createElement('div'); terms.className = 'calculation-terms';
   const displayed = expandedTerms ? row.cols : row.cols.slice(0, 48);
@@ -446,10 +578,32 @@ function renderCalculation(): void {
   const result = document.createElement('p'); result.className = 'calculation-result';
   result.textContent = raw === undefined ? `W row · x = ${sum}. Click Multiply to calculate the full vector.` : `${raw === sum ? 'Sum' : `W row · x = ${sum}, B · u = ${raw - sum}; total`} = ${raw} → ReLU = max(0, ${raw}) = ${raw < 0n ? 0n : raw}${raw < 0n ? ' · negative value is clipped' : ''}`;
   details.append(result);
+  if (raw !== undefined && raw > BigInt(register.bound)) {
+    const overflow = document.createElement('p'); overflow.className = 'calculation-overflow';
+    overflow.textContent = `Exceeds this coordinate's bound of ${register.bound.toLocaleString()} by ${(raw - BigInt(register.bound)).toLocaleString()}. The update faults instead of committing; nothing wraps.`;
+    details.append(overflow);
+  }
   const inputDevice = artifact.devices.consoleInput;
   if (inputDevice && [inputDevice.available, inputDevice.eof, inputDevice.codepoint].includes(selectedRow)) {
     const note = document.createElement('p'); note.textContent = 'Input latch: the reserved console packet is added through the fixed input map B before ReLU. It is consumed only on commit.'; details.append(note);
   }
+}
+/** Where a coordinate comes from: its kind, source line and, for program counters, the instruction. */
+function renderRowMeta(register: Artifact['registers'][number]): void {
+  const meta = $('row-meta');
+  const marker = artifact!.markers.find(item => item.register === selectedRow);
+  const line = marker?.line ?? register.line;
+  const chip = (text: string) => { const element = document.createElement('span'); element.className = 'row-meta-chip'; element.textContent = text; return element; };
+  const parts = [chip(marker ? 'program counter' : register.kind)];
+  if (register.context) parts.push(chip(`context ${register.context}`));
+  if (marker) parts.push(chip(`instruction: ${marker.label}`));
+  if (selectedRow === artifact!.end) parts.push(chip('end gate'));
+  if (selectedRow === artifact!.led) parts.push(chip('LED'));
+  if (line !== undefined && line > 0) {
+    const link = actionButton(`${marker ? 'Line' : 'From line'} ${line}`, () => revealLine(line));
+    link.className = 'row-meta-line'; parts.push(link);
+  }
+  meta.replaceChildren(...parts);
 }
 function renderMatrix(): void {
   matrixInspector.setArtifact(artifact);
@@ -476,7 +630,7 @@ function renderOutputs(): void {
   document.querySelector('.screen-panel h2')!.textContent = devices?.screen ? 'Pixel screen' : 'Output gates';
   document.querySelectorAll<HTMLElement>('.screen-content strong, .screen-content p').forEach(element => { element.hidden = !devices?.screen; });
   $('console-badge').textContent = consoleLinked ? [devices?.consoleOutput ? 'OUT' : '', devices?.consoleInput ? 'IN' : ''].filter(Boolean).join(' + ') : 'not linked';
-  $('screen-badge').textContent = devices?.screen ? '6 coordinates' : 'No optional devices';
+  $('screen-badge').textContent = devices?.screen ? '6 coordinates' : consoleLinked ? 'No screen' : 'No optional devices';
   $<HTMLInputElement>('console-input').disabled = !devices?.consoleInput || machine?.status === 'ended' || machine?.status === 'fault';
   $<HTMLButtonElement>('send-input').disabled = $<HTMLInputElement>('console-input').disabled;
   $<HTMLButtonElement>('send-eof').disabled = $<HTMLInputElement>('console-input').disabled;
@@ -498,11 +652,11 @@ function renderOutputs(): void {
 }
 function renderHistory(): void {
   if (machine && artifact && lastRecordedTick !== machine.tick) {
-    recentChanges = new Set();
-    machine.state.forEach((value, index) => { if (previousState && value !== previousState[index]) recentChanges.add(index); });
-    const changes = previousState ? machine.state.reduce((total, value, index) => total + Number(value !== previousState![index]), 0) : 0;
-    const active = artifact.markers.filter(marker => machine!.state[marker.register] !== 0).map(marker => `${marker.context}: ${marker.label}`).join(' · ');
-    history.unshift({ tick: machine.tick, result: artifact.result === undefined ? undefined : machine.state[artifact.result], active, changes });
+    const changes = previousState ? stateChanges(previousState, machine.state) : [];
+    recentChanges = new Set(changes.map(change => change.index));
+    const active = activeMarkers(artifact, machine.state).map(marker => `L${marker.line} ${marker.context}: ${marker.label}`).join(' · ');
+    const detail = changes.slice(0, 6).map(change => `${artifact!.registers[change.index]!.name} ${change.from}→${change.to}`).join(', ') + (changes.length > 6 ? ', …' : '');
+    history.unshift({ tick: machine.tick, result: artifact.result === undefined ? undefined : machine.state[artifact.result], active, changes: changes.length, detail });
     if (history.length > 24) history.pop();
     previousState = machine.state.slice(); lastRecordedTick = machine.tick;
   }
@@ -510,6 +664,7 @@ function renderHistory(): void {
   $('history').replaceChildren(...history.map(item => {
     const entry = document.createElement('li');
     entry.textContent = `Tick ${item.tick} · ${item.changes} coordinates changed${item.result === undefined ? '' : ` · result ${item.result}`}${item.active ? ` · ${item.active}` : ''}`;
+    if (item.detail) { const detail = document.createElement('small'); detail.textContent = item.detail; entry.append(detail); }
     return entry;
   }));
 }
@@ -517,6 +672,7 @@ function render(): void {
   const matchingPreset = examples.find(example => example.source === source.value);
   $('active-program-name').textContent = matchingPreset?.name ?? 'Custom program';
   $('program-origin').textContent = matchingPreset ? 'Preset' : 'Edited source';
+  for (const [id, card] of presetCards) card.setAttribute('aria-current', String(id === matchingPreset?.id));
   workspaceNotice.hidden = !needsCompile || activeTab === 'program' || activeTab === 'inspect';
   $<HTMLButtonElement>('copy-matrix-python').disabled = !artifact || needsCompile;
   $<HTMLButtonElement>('copy-input-vector').disabled = !machine || needsCompile || invalidParameters;
@@ -530,31 +686,52 @@ function render(): void {
   phaseButton.textContent = phase === 'ready' ? 'Multiply →' : phase === 'multiplied' ? 'Apply ReLU →' : 'Commit tick →';
   const canStep = Boolean(machine && (machine.status === 'ready' || machine.status === 'waiting') && !running && !needsCompile && !invalidParameters);
   phaseButton.disabled = !canStep; $<HTMLButtonElement>('step').disabled = !canStep;
+  const lineButton = $<HTMLButtonElement>('step-line');
+  lineButton.disabled = !canStep || !artifact?.markers.length;
+  lineButton.title = artifact && !artifact.markers.length ? 'This matrix came from a specialized lowering with no per-instruction program counters; step by phase or tick' : 'Run until execution reaches a different source line (L)';
+  $('pause-reason').textContent = pauseReason; $('pause-reason').hidden = !pauseReason || running;
   $<HTMLButtonElement>('run').disabled = !machine || machine.status === 'ended' || machine.status === 'fault' || needsCompile || invalidParameters;
   $('run').textContent = running || playIntent ? 'Ⅱ Pause' : '▶ Run';
   $<HTMLButtonElement>('reset').disabled = !machine || needsCompile || invalidParameters;
   const status = invalidParameters ? 'Invalid input' : !machine ? 'Not compiled' : running ? 'Running' : machine.status === 'ended' ? 'Ended' : machine.status === 'fault' ? 'Fault' : machine.status === 'waiting' ? 'Waiting for input' : 'Paused';
   $('status').textContent = status; $('status').className = `status ${machine?.status ?? ''}${running ? ' running' : ''}`;
   $('phase-explanation').textContent = !machine ? 'Compile a program to inspect its matrix.' : phase === 'ready' ? 'The current vector is committed. Multiply computes all rows from this same state; no row sees another row’s new value.' : phase === 'multiplied' ? 'These are exact signed sums, before ReLU. Negative values are visible here. The state and all devices are still unchanged.' : 'ReLU has clipped negative sums to zero. Inspect the candidate, then commit atomically. Only commit advances time and emits output.';
-  if (machine?.error && !invalidParameters) setError(machine.error);
+  if (machine?.error && !invalidParameters && displayedFault !== machine.error) showFault();
   const markers = artifact && machine && !needsCompile ? artifact.markers.filter(marker => machine!.state[marker.register] !== 0) : [];
   $('active-source').textContent = markers.length ? `Line${markers.length > 1 ? 's' : ''} ${[...new Set(markers.map(marker => marker.line))].join(', ')}` : 'No active instruction';
   $('active-contexts').replaceChildren(...markers.slice(0, 12).map(marker => {
     const badge = document.createElement('button'); badge.className = 'context-badge'; badge.textContent = `${marker.context} · L${marker.line} · ${marker.label}`;
-    badge.addEventListener('click', () => {
-      const offset = source.value.split('\n').slice(0, Math.max(0, marker.line - 1)).reduce((sum, line) => sum + line.length + 1, 0);
-      source.focus(); source.setSelectionRange(offset, offset + (source.value.split('\n')[marker.line - 1]?.length ?? 0));
-      source.scrollTop = Math.max(0, (marker.line - 5) * 20); updateGutter();
-    });
+    badge.title = `Show line ${marker.line} in the source`;
+    badge.addEventListener('click', () => revealLine(marker.line, true));
     return badge;
   }));
   $('backend').textContent = machine?.backend.name.includes('WASM') || machine?.backend.name.includes('WebAssembly') ? '● WASM · exact i64' : backend ? '● Exact JS · compile for WASM' : '● Exact JS backend';
-  updateGutter(); renderHistory(); renderVector(); renderCalculation(); renderOutputs(); mathOverview.render(artifact, machine, $<HTMLInputElement>('enable-led').checked, running); if (matrixView) renderMatrix();
+  updateGutter(); renderHistory(); renderVector(); renderCalculation(); renderOutputs(); renderBreakpoints(); mathOverview.render(artifact, machine, $<HTMLInputElement>('enable-led').checked, running, recentChanges); if (matrixView) renderMatrix();
 }
 
-for (const example of examples) { const option = document.createElement('option'); option.value = example.id; option.textContent = example.name; picker.append(option); }
-picker.addEventListener('change', chooseExample);
-$('compile').addEventListener('click', compileProgram);
+// Feature tags come from the preset source itself, so they cannot drift from the program.
+const presetFeatures: [RegExp, string][] = [
+  [/\b(print|putc)\(/, 'console out'], [/\bread\(/, 'console in'], [/\bpixel\(/, 'screen'],
+  [/\brec fn\b/, 'recursion'], [/\bparallel\b/, 'parallel'], [/\blet \w+\[/, 'arrays'],
+];
+const presetTags = (text: string) => presetFeatures.filter(([pattern]) => pattern.test(text)).map(([, tag]) => tag);
+const presetCards = new Map<string, HTMLButtonElement>();
+for (const example of examples) {
+  const item = document.createElement('div'); item.setAttribute('role', 'listitem');
+  const card = document.createElement('button'); card.type = 'button'; card.className = 'preset-card'; card.dataset.preset = example.id;
+  const [title, size] = example.name.split(' · ');
+  card.innerHTML = '<span class="preset-card-heading"><strong class="preset-card-name"></strong><span class="preset-card-current">Loaded</span></span><span class="preset-card-description"></span><span class="preset-card-tags"></span>';
+  card.querySelector('.preset-card-name')!.textContent = example.name;
+  card.querySelector('.preset-card-description')!.textContent = example.description;
+  const tags = card.querySelector('.preset-card-tags')!;
+  for (const tag of [...Object.entries(example.inputs).map(([name, value]) => `${name} = ${value.toLocaleString()}`), ...presetTags(example.source)]) {
+    const chip = document.createElement('span'); chip.textContent = tag; tags.append(chip);
+  }
+  card.setAttribute('aria-label', `${title}${size ? `, ${size}` : ''}. ${example.description}`);
+  card.addEventListener('click', () => chooseExample(example.id));
+  item.append(card); $('preset-gallery').append(item); presetCards.set(example.id, card);
+}
+$('compile').addEventListener('click', compileFromEditor);
 async function copyNumericData(kind: 'matrix' | 'vector'): Promise<void> {
   if (!artifact || !machine || needsCompile || (kind === 'vector' && invalidParameters)) return;
   const feedback = $('copy-feedback');
@@ -581,12 +758,32 @@ source.addEventListener('keydown', event => {
   if (event.key === 'Tab') {
     event.preventDefault(); const start = source.selectionStart; source.setRangeText('  ', start, source.selectionEnd, 'end'); source.dispatchEvent(new Event('input'));
   }
-  if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') { event.preventDefault(); compileProgram(); }
+  if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') { event.preventDefault(); compileFromEditor(); }
+  if (event.key === 'F9') { event.preventDefault(); toggleBreakpoint(source.value.slice(0, source.selectionStart).split('\n').length); }
 });
 $('phase-step').addEventListener('click', () => { stop(); execute(() => machine!.stepPhase()); });
 $('step').addEventListener('click', () => { stop(); execute(() => machine!.step()); });
 $('reset').addEventListener('click', () => { stop(); execute(() => { machine!.reset(inputValues()); resetHistory(); }); });
-$('run').addEventListener('click', () => { if (running || playIntent) { stop(); render(); } else beginPlaying(); });
+$('run').addEventListener('click', () => { if (running || playIntent) { stop(); render(); } else beginPlaying('run'); });
+$('step-line').addEventListener('click', () => beginPlaying('line'));
+// Debugger keys work anywhere outside text entry, in the tabs that show the transport.
+const shortcuts: Record<string, string> = { '.': 'phase-step', t: 'step', l: 'step-line', r: 'run' };
+document.addEventListener('keydown', event => {
+  if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || event.repeat) return;
+  if ((event.target as HTMLElement).closest?.('input, textarea, select, [contenteditable], dialog') || (activeTab !== 'run' && activeTab !== 'inspect')) return;
+  const button = shortcuts[event.key.toLowerCase()];
+  if (!button || $<HTMLButtonElement>(button).disabled) return;
+  event.preventDefault(); $(button).click();
+});
+$('line-numbers').addEventListener('click', event => {
+  const line = Number((event.target as HTMLElement).closest<HTMLElement>('[data-line]')?.dataset.line);
+  if (line) toggleBreakpoint(line);
+});
+document.addEventListener('visibilitychange', () => {
+  // A pending animation frame would wait until the tab is visible again.
+  if (running && frame) scheduleFrame();
+  if (!document.hidden) render();
+});
 for (const id of ['filter', 'internals', 'changed']) $(id).addEventListener('input', renderVector);
 $('enable-led').addEventListener('change', () => { renderOutputs(); mathOverview.render(artifact, machine, $<HTMLInputElement>('enable-led').checked, running); });
 for (const id of ['enable-output', 'enable-input', 'enable-screen']) $(id).addEventListener('change', () => { stop(); needsCompile = true; $('dirty').textContent = 'Devices changed · compile to apply'; render(); });
@@ -624,12 +821,15 @@ consoleInput.addEventListener('keydown', event => {
 $('console-form').addEventListener('submit', event => { event.preventDefault(); if (!composingInput) deliverCharacters('\n'); });
 $('send-eof').addEventListener('click', () => deliverCharacters('', true));
 
-const requestedPreset = new URLSearchParams(location.search).get('preset');
-picker.value = examples.some(example => example.id === requestedPreset) ? requestedPreset! : 'parity';
-chooseExample();
-if (!requestedPreset) {
+// A ?preset= link opens that program in Run; a plain visit starts at the gallery,
+// with parity ready behind it so Program, Run and Inspect are usable immediately.
+const requestedPreset = examples.find(example => example.id === new URLSearchParams(location.search).get('preset'));
+chooseExample(requestedPreset?.id ?? 'parity');
+if (requestedPreset) selectAppTab('run');
+else {
   renderParameters({ n: 4 });
   resetParameters();
+  selectAppTab('presets');
 }
 void createWasmBackend().then(result => {
   backend = result;

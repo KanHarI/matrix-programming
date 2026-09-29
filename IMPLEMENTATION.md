@@ -108,9 +108,11 @@ supersedes the earlier proposed `ConsoleEndOfInput` fault. The browser delivers
 characters immediately; Enter sends LF and Backspace sends character 8. Paste
 preserves character order and newlines; the EOF button closes the stream. Input
 resumes a playing run automatically, but never a manually paused run. On page
-load, parity is ready with input 4, paused at tick zero.
+load, the Presets gallery is shown with parity ready behind it (input 4, paused at
+tick zero); a `?preset=<id>` link opens that program in Run instead.
 
-The execution toolbar and mathematical view share one panel. Input values are
+The execution toolbar sits above the mathematical view in Run and Inspect and stays
+pinned while scrolling on screens with room for it. Input values are
 highlighted blue only in committed `x_t`; weight rows and preview vectors do not
 inherit that input color. Running and Output cards sit beside the calculation on
 desktop and below it on phones. Output reads the committed LED binding, explicitly
@@ -118,7 +120,9 @@ distinguishes a provisional value from a final result, and never reports a previ
 as final. Matrix scrolling stays inside its viewport on small screens.
 
 Four accessible keyboard-navigable tabs separate Presets, Program, Run, and
-Inspect. Selecting a preset compiles it and opens Run, paused. The Program and
+Inspect. Selecting a preset compiles it and opens its source in Program; a
+successful Compile & reset from Program opens Run, paused, while compile errors stay
+in Program and compiling from Inspect stays in Inspect. The Program and
 Inspect tabs move the same editor node rather than copying it; Run and Inspect
 share the same execution controls. Tab changes do not reset or pause execution.
 Clicking a mathematical coordinate opens its exact row in Inspect. Errors remain
@@ -441,14 +445,27 @@ debugging follow the matrix/vector and device views. Small matrices display ever
 coefficient; larger matrices use explicitly labeled excerpts and navigable windows,
 not an N² DOM allocation. It runs bounded batches
 on the main thread and falls back to exact BigInt if WASM cannot load. Large
-programs can be slow; a worker runner is still planned. Source stepping and the
-hand-optimized matrix editor are not implemented.
+programs can be slow; a worker runner is still planned. A started run keeps
+advancing on timers while its tab is hidden. The hand-optimized matrix editor is
+not implemented.
+
+Source-level stepping uses the compiler's instruction markers: each marks a
+program-counter coordinate that is nonzero while its instruction executes.
+**Step line** commits whole updates until the set of active (context, line) pairs
+changes to a different nonempty set; routing ticks with no active marker are
+passed over, and several instructions compiled from one line count as one step.
+Line breakpoints pause after the commit in which one of the line's instructions
+becomes active, so resuming continues past an instruction that is already active.
+Specialized lowerings without per-instruction program counters (straight-line
+affine circuits) disable Step line and explain why. Parity's fused countdown keeps
+one marker for its loop line. Neither feature adds coordinates or changes W.
 
 Recent history contains at most 24 sampled commit summaries, not every executed
 tick or restorable checkpoints. The runtime preserves the latest 512 event
 records while updating the complete current console transcript and screen at
-every event. Historical replay, breakpoints, and transcript storage limits remain
-future work. None of these host-side views adds matrix coordinates.
+every event. Each summary lists up to six changed coordinates with their old and
+new values. Historical replay, conditional breakpoints, and transcript storage
+limits remain future work. None of these host-side views adds matrix coordinates.
 
 ## Verification
 

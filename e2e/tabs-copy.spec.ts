@@ -24,7 +24,7 @@ test('tabs separate presets, editing, execution and inspection without duplicate
   }
   await expect(page.locator('#app-tab-run')).toHaveAttribute('aria-selected', 'true');
   await expect(page.locator('#source')).toBeHidden();
-  await expect(page.locator('#example')).toBeHidden();
+  await expect(page.locator('#preset-gallery')).toBeHidden();
   await expect(page.locator('#coefficient-table')).toBeHidden();
   await expect(page.locator('#math-overview')).toBeVisible();
   await page.locator('#step').evaluate(element => element.setAttribute('data-identity-test', 'same-toolbar'));
@@ -62,7 +62,7 @@ test('the shared program name follows source identity across tabs, not numeric i
   await expect(page.locator('#backend')).toContainText('WASM');
   const name = page.locator('#active-program-name');
   const origin = page.locator('#program-origin');
-  const parityName = (await page.locator('#example option:checked').textContent())!;
+  const parityName = (await page.locator('.preset-card[aria-current="true"] .preset-card-name').textContent())!;
   const originalSource = await page.locator('#source').inputValue();
   const tabs = ['presets', 'program', 'inspect', 'run'] as const;
   for (const tab of tabs) {
@@ -96,9 +96,15 @@ test('the shared program name follows source identity across tabs, not numeric i
   }
 });
 
-test('preset choice opens Run paused, while mathematical row clicks open Inspect', async ({ page }) => {
+test('preset choice opens its source, Compile & reset opens Run paused, and row clicks open Inspect', async ({ page }) => {
   await open(page);
-  await choosePreset(page, 'prime-simple');
+  await showTab(page, 'presets');
+  await page.locator('.preset-card[data-preset="prime-simple"]').click();
+  await expect(page.locator('#app-tab-program')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('#source')).toBeVisible();
+  await expect(page.locator('#dimensions')).toHaveText('26 × 26');
+  await expect(page.locator('#compile')).toBeInViewport();
+  await page.locator('#compile').click();
   await expect(page.locator('#app-tab-run')).toHaveAttribute('aria-selected', 'true');
   await expect(page.locator('#tick')).toHaveText('0');
   await expect(page.locator('#status')).toHaveText('Paused');
@@ -107,6 +113,13 @@ test('preset choice opens Run paused, while mathematical row clicks open Inspect
   await expect(page.locator('#row-name')).toContainText('[0]');
   await expect(page.locator('#source')).toBeVisible();
   await expect(page.locator('#tick')).toHaveText('0');
+  // Compiling beside the debugger keeps the debugger in view.
+  await page.locator('#compile').click();
+  await expect(page.locator('#app-tab-inspect')).toHaveAttribute('aria-selected', 'true');
+  // Keyboard compile from Program also continues to Run.
+  await showTab(page, 'program');
+  await page.locator('#source').press('ControlOrMeta+Enter');
+  await expect(page.locator('#app-tab-run')).toHaveAttribute('aria-selected', 'true');
 });
 
 test('tab changes preserve an active run and its committed state', async ({ page }) => {

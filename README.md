@@ -24,13 +24,21 @@ npm ci
 npm run dev
 ```
 
-Open the local URL printed by Vite. Parity loads with input 4, paused at tick zero.
-Use **Presets** to select an example, **Program** to edit its source, **Run** for
+Open the local URL printed by Vite. The page opens on the **Presets** gallery, with
+parity already compiled (input 4, paused at tick zero); `?preset=<id>` links open Run.
+**Take the tour** (`/tour.html`) is a guided, animated introduction: 20 chapters,
+including an in-depth walk through Inspect. Advance with **Next** (or ←/→) at your
+own pace, or press Play to watch it as a movie. A side tour
+(`/tour.html?tour=clock`) takes apart the 11-phase clock. Every matrix, vector,
+program counter and pixel shown is computed live by the real compiler and runtime.
+Use **Presets** to pick an example from the gallery, **Program** to edit its source, **Run** for
 the matrix and devices, and **Inspect** for coefficients, vectors, and the same
 source editor. Switching tabs preserves execution and edits.
 The preset name remains visible in every tab while its source is unchanged;
 changing inputs keeps the name, while editing source labels it Custom program.
-Selecting another example compiles it and opens Run. Changing a numeric input
+Choosing an example compiles it and opens its source in **Program**; **Compile &
+reset** (Ctrl/⌘+Enter) there opens Run, while compile errors stay beside the
+source. Compiling from Inspect stays in Inspect. Changing a numeric input
 resets execution to tick zero, paused and ready to step; W is unchanged.
 Source, device, and compiler-option edits require **Compile & reset**.
 Open **Program → Compiler options** (also in Inspect) for 21 independent
@@ -40,7 +48,15 @@ on by default; loop summarization is off. Specialized lowerings can bypass
 general-backend passes, so a flag need not affect every program.
 **Multiply → Apply ReLU → Commit** advances one phase at a time without producing
 I/O during previews. Full tick completes one matrix update; Run executes bounded
-batches. Select a vector coordinate to inspect its actual weighted source terms.
+batches. **Step line** runs until execution reaches a different source line.
+Click a line number (or press F9 in the editor) to set a breakpoint; Run pauses
+when one of that line's instructions begins. Keys: `.` next phase, `T` full tick,
+`L` step line, `R` run/pause. The toolbar stays pinned while scrolling on larger
+screens. Select a vector coordinate to inspect its actual weighted source terms,
+the source line it came from, and whether its candidate exceeds its bound.
+**Inspect → Compiled instructions** lists each source line's program-counter
+coordinates; faults name the overflowing value and the executing line, with a
+link to the faulting row.
 In **Inspect → Matrix W**, the default **Logical rows** view shows named row
 dictionaries instead of a grid of zeros. **Diagonal default on (1)** omits
 self-weights of 1 and explicitly lists other diagonal values, including 0.
@@ -139,8 +155,8 @@ the full sparse JSON or nonzero CSV downloads in Inspect.
 
 Recursion currently uses per-depth code/data banks, not one shared recursive body
 with a dynamically addressed stack. Mutual recursion, atomic parallel
-assignment syntax, a worker-based runner, breakpoints, and historical replay are
-not implemented yet. The browser currently retains a short summary of recent
+assignment syntax, a worker-based runner, conditional breakpoints, and historical
+replay are not implemented yet. The browser currently retains a short summary of recent
 sampled commits, not a rewindable trace. The broader design documents below are
 the roadmap, not a claim that every proposed feature is shipped.
 

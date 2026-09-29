@@ -128,7 +128,7 @@ test('Run opens mathematical objects; Inspect exposes every 6x6 coefficient and 
   const positions = await page.evaluate(() => ({ matrix: document.querySelector('#math-overview')!.getBoundingClientRect().top, ports: document.querySelector('.outputs')!.getBoundingClientRect().top }));
   expect(positions.matrix).toBeLessThan(positions.ports);
   await showTab(page, 'presets');
-  await expect(page.locator('#example')).toBeVisible();
+  await expect(page.locator('#preset-gallery')).toBeVisible();
   await expect(page.locator('#app-panel-presets')).not.toContainText('nullnull');
   await showTab(page, 'inspect');
   await expect(page.locator('#parameters')).toBeVisible();

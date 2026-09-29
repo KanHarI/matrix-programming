@@ -19,10 +19,11 @@ async function expectTransport(page: Page, enabled: boolean): Promise<void> {
 
 test('editing n restarts the finished default parity without recompiling its matrix', async ({ page }) => {
   const errors = await open(page);
-  await expect(page.locator('#example')).toHaveValue('parity');
+  await expect(page.locator('.preset-card[aria-current="true"]')).toHaveAttribute('data-preset', 'parity');
   await expect(page.locator('[data-parameter="n"]')).toHaveValue('4');
   await expect(page.locator('#status')).toHaveText('Paused');
   await expect(page.locator('#tick')).toHaveText('0');
+  await showTab(page, 'run');
   await page.locator('#run').click();
   await expect(page.locator('#status')).toHaveText('Ended');
   await expect(page.locator('#led-text')).toContainText('on (1)');
