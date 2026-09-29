@@ -53,7 +53,6 @@ button{font:inherit;cursor:pointer}
 .t-chapter-next{display:inline-flex;flex-direction:column;align-items:flex-start;gap:2px;margin-top:14px;padding:10px 14px;border:1px solid var(--border);border-radius:8px;background:#fff;color:var(--ink);font-size:15px;font-weight:600;text-align:left}
 .t-chapter-next:hover{border-color:#abc2ac;background:#f4f8ef}
 .t-chapter-next span{font:600 10px var(--mono);letter-spacing:1.2px;text-transform:uppercase;color:var(--teal)}
-.t-step:not(.t-active) .t-chapter-next{visibility:hidden}
 .t-cta{display:flex;flex-wrap:wrap;gap:10px;padding-top:6px}
 .t-button{display:inline-flex;align-items:center;padding:11px 16px;border:1px solid var(--border);border-radius:8px;background:#fff;color:var(--ink);font-size:15px;font-weight:600;text-decoration:none}
 .t-button:hover{border-color:#abc2ac;background:#f4f8ef}

@@ -91,7 +91,7 @@ test('Next moves at the viewer’s pace, from the header, the chapter, or repeat
   await expect(page.getByRole('button', { name: 'Previous chapter' })).toBeDisabled();
   await page.getByRole('button', { name: 'Next chapter' }).click();
   await expect(activeChapter(page)).toHaveAttribute('id', 'state');
-  await activeChapter(page).getByRole('button', { name: /Next.*The program is the matrix W/ }).click();
+  await page.locator('#state').getByRole('button', { name: /Next.*The program is the matrix W/ }).click();
   await expect(activeChapter(page)).toHaveAttribute('id', 'matrix');
   // Three quick presses advance three chapters, even while the first scroll is still moving.
   for (let press = 0; press < 3; press++) await page.getByRole('button', { name: 'Next chapter' }).click();
