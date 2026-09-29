@@ -1,4 +1,4 @@
-import { CstParser, Lexer, createToken, type CstNode, type IToken } from 'chevrotain';
+import { CstParser, EOF, Lexer, createToken, type CstNode, type IParserErrorMessageProvider, type IToken, type TokenType } from 'chevrotain';
 import type { Expr, FunctionDecl, Program, Stmt } from './core/ast';
 
 const WhiteSpace = createToken({ name: 'WhiteSpace', pattern: /\s+/, group: Lexer.SKIPPED });
@@ -33,8 +33,32 @@ const tokens = [WhiteSpace, Comment, Fn, Rec, Let, If, Else, While, Return, Para
   LParen, RParen, LBrace, RBrace, LBracket, RBracket, Comma, Colon, Semicolon];
 const lexer = new Lexer(tokens);
 
+// Describe grammar expectations in source terms instead of Chevrotain token-type names.
+const tokenDescriptions: Record<string, string> = {
+  Identifier: 'a name', NumberLiteral: 'a number', StringLiteral: 'a string literal', Comparison: 'a comparison',
+  AddOperator: "'+' or '-'", Arrow: "'->'", Equals: "'='", LParen: "'('", RParen: "')'", LBrace: "'{'", RBrace: "'}'",
+  LBracket: "'['", RBracket: "']'", Comma: "','", Colon: "':'", Semicolon: "';'", EOF: 'the end of the file',
+};
+const ruleDescriptions: Record<string, string> = {
+  program: "a function declaration ('fn')", functionDecl: "a function declaration ('fn')", statement: 'a statement',
+  letStatement: 'a declaration', expression: 'an expression', additive: 'an expression', primary: 'an expression',
+};
+const describeToken = (type: TokenType) => tokenDescriptions[type.name] ?? `'${type.name.toLowerCase()}'`;
+const describeFound = (token: IToken) => token.tokenType === EOF ? 'the end of the file' : `'${token.image}'`;
+const describeChoices = (paths: TokenType[][], rule: string) => {
+  if (ruleDescriptions[rule]) return ruleDescriptions[rule]!;
+  const first = [...new Set(paths.filter(path => path.length).map(path => describeToken(path[0]!)))];
+  return first.length > 1 ? `one of ${first.slice(0, -1).join(', ')} or ${first.at(-1)}` : first[0] ?? 'more input';
+};
+const errorMessageProvider: IParserErrorMessageProvider = {
+  buildMismatchTokenMessage: ({ expected, actual }) => `Expected ${describeToken(expected)} but found ${describeFound(actual)}`,
+  buildNotAllInputParsedMessage: ({ firstRedundant }) => `Unexpected ${describeFound(firstRedundant)} after the last function`,
+  buildNoViableAltMessage: ({ expectedPathsPerAlt, actual, ruleName }) => `Expected ${describeChoices(expectedPathsPerAlt.flat(), ruleName)} but found ${describeFound(actual[0]!)}`,
+  buildEarlyExitMessage: ({ expectedIterationPaths, actual, ruleName }) => `Expected ${describeChoices(expectedIterationPaths, ruleName)} but found ${describeFound(actual[0]!)}`,
+};
+
 class MatrixParser extends CstParser {
-  constructor() { super(tokens); this.performSelfAnalysis(); }
+  constructor() { super(tokens, { errorMessageProvider }); this.performSelfAnalysis(); }
 
   program = this.RULE('program', () => { this.AT_LEAST_ONE(() => this.SUBRULE(this.functionDecl)); });
   functionDecl = this.RULE('functionDecl', () => {
@@ -205,6 +229,11 @@ export function parse(source: string): Program {
   const cst = parser.program();
   if (parser.errors.length) {
     const error = parser.errors[0]!;
+    const previous = (error as { previousToken?: IToken }).previousToken;
+    // A missing ';' is noticed at the next statement; report where it belongs.
+    if (error.message.startsWith("Expected ';'") && previous?.endLine !== undefined && Number.isFinite(previous.endLine) && previous.endLine < (error.token.startLine ?? Infinity)) {
+      throw new Error(`Line ${previous.endLine}, column ${previous.endColumn! + 1}: Missing ';' after '${previous.image}' (found ${describeFound(error.token)} on line ${error.token.startLine})`);
+    }
     const lines = source.split('\n');
     const atLine = Number.isFinite(error.token.startLine) && error.token.startLine! > 0 ? error.token.startLine : lines.length;
     const atColumn = Number.isFinite(error.token.startColumn) && error.token.startColumn! > 0 ? error.token.startColumn : lines.at(-1)!.length + 1;

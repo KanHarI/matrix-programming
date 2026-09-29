@@ -7,8 +7,10 @@ export async function showTab(page: Page, tab: AppTab): Promise<void> {
 }
 export async function choosePreset(page: Page, preset: string): Promise<void> {
   await showTab(page, 'presets');
-  await page.locator('#example').selectOption(preset);
-  await expect(page.locator('#app-panel-run')).toBeVisible();
+  await page.locator(`.preset-card[data-preset="${preset}"]`).click();
+  // A preset opens its source first; execution tests continue in Run.
+  await expect(page.locator('#app-panel-program')).toBeVisible();
+  await showTab(page, 'run');
 }
 export async function editSource(page: Page, source: string): Promise<void> {
   await showTab(page, 'program');
@@ -17,7 +19,9 @@ export async function editSource(page: Page, source: string): Promise<void> {
 export async function compileProgram(page: Page): Promise<void> {
   await showTab(page, 'program');
   await page.locator('#compile').click();
-  if (await page.locator('#error').getAttribute('hidden') !== null) await showTab(page, 'run');
+  // A successful compile from Program continues to Run by itself; errors stay in Program.
+  if (await page.locator('#error').getAttribute('hidden') !== null) await expect(page.locator('#app-panel-run')).toBeVisible();
+  else await expect(page.locator('#app-panel-program')).toBeVisible();
 }
 export async function setDevice(page: Page, name: 'led' | 'screen' | 'input' | 'output', enabled: boolean): Promise<void> {
   await showTab(page, 'inspect');

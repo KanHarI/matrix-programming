@@ -8,7 +8,7 @@
 .workspace-tab-panel[hidden]{display:none}
 .inspect-tab-layout{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(300px,1fr);gap:16px;align-items:start}
 .inspect-details{display:flex;flex-direction:column;gap:16px;min-width:0}.inspect-source{min-width:0}
-#app-panel-program .source-panel{position:static;width:100%}#app-panel-program .editor-wrap{height:550px}
+#app-panel-program .source-panel{position:static;width:100%}#app-panel-program .editor-wrap{height:clamp(260px,calc(100vh - 430px),550px)}
 #app-panel-inspect .matrix-vector-layout{grid-template-columns:minmax(0,1fr)}#app-panel-inspect .vector-section{border-left:0;border-top:1px solid var(--border)}
 .run-inputs{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px 16px;padding:12px 24px;border-bottom:1px solid var(--border);background:#fff}
 .run-inputs .parameters{padding:0}.matrix-copy-tools{display:flex;align-items:center;flex-wrap:wrap;gap:8px}.matrix-copy-tools button{font-size:11px;min-height:36px}

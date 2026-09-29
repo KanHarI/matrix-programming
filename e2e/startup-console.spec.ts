@@ -1,9 +1,11 @@
 import { expect, test } from '@playwright/test';
 
-test('page load prepares parity for four without starting execution', async ({ page }) => {
+test('page load opens the preset gallery with parity prepared for four, not running', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('#backend')).toContainText('WASM');
-  await expect(page.locator('#example')).toHaveValue('parity');
+  await expect(page.locator('#app-tab-presets')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('#preset-gallery')).toBeVisible();
+  await expect(page.locator('.preset-card[aria-current="true"]')).toHaveAttribute('data-preset', 'parity');
   await expect(page.locator('[data-parameter="n"]')).toHaveValue('4');
   await expect(page.locator('#status')).toHaveText('Paused');
   await expect(page.locator('#tick')).toHaveText('0');
@@ -13,8 +15,8 @@ test('page load prepares parity for four without starting execution', async ({ p
   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
   await expect(page.locator('#tick')).toHaveText('0');
   await expect(page.locator('[data-indicator="running"] .math-indicator-value')).toHaveText('Paused');
-  expect(await page.locator('#example option').allTextContents()).not.toContain('Parity · faster algorithm');
-  await expect(page.locator('#example option[value="parity-fast"]')).toHaveCount(0);
+  expect(await page.locator('.preset-card-name').allTextContents()).not.toContain('Parity · faster algorithm');
+  await expect(page.locator('.preset-card[data-preset="parity-fast"]')).toHaveCount(0);
 });
 
 test('characters immediately resume a playing input-blocked program without an implicit newline', async ({ page }) => {

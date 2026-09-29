@@ -43,6 +43,9 @@ export class MatrixInspector {
   private selectedRow = 0;
   private selectedColumn = 0;
   private readonly pageSize = 12;
+  /** Logical rows are one line each, so they can show more destinations per page than the grid. */
+  private logicalPageSize = 12;
+  private get rowPageSize(): number { return this.logicalMode ? this.logicalPageSize : this.pageSize; }
   private readonly rowInput: HTMLInputElement;
   private readonly columnInput: HTMLInputElement;
   private readonly table: HTMLTableElement;
@@ -70,7 +73,7 @@ export class MatrixInspector {
         <label id="matrix-column-label">First column <input id="matrix-column-start" type="number" min="0" step="1" value="0" required></label>
         <button type="submit">Go to block</button>
       </form>
-      <div class="matrix-pagination"><button type="button" data-move="up" aria-label="Previous matrix rows">↑ Rows</button><button type="button" data-move="down" aria-label="Next matrix rows">↓ Rows</button><button type="button" data-move="left" aria-label="Previous matrix columns">← Columns</button><button type="button" data-move="right" aria-label="Next matrix columns">→ Columns</button><span id="matrix-range" aria-live="polite"></span></div>
+      <div class="matrix-pagination"><button type="button" data-move="up" aria-label="Previous matrix rows">↑ Rows</button><button type="button" data-move="down" aria-label="Next matrix rows">↓ Rows</button><label id="matrix-page-size-label" class="matrix-page-size" hidden>Rows per page <select id="matrix-page-size"><option>12</option><option>48</option><option>192</option></select></label><button type="button" data-move="left" aria-label="Previous matrix columns">← Columns</button><button type="button" data-move="right" aria-label="Next matrix columns">→ Columns</button><span id="matrix-range" aria-live="polite"></span></div>
       <label class="matrix-search-label">Find a row or column by register name or index<input id="matrix-register-search" type="search" placeholder="e.g. main.main.n, clock, or 937" autocomplete="off"></label>
       <div id="matrix-register-matches" class="matrix-register-matches"></div>
       <div id="matrix-logical-rows" class="matrix-logical-rows" hidden></div>
@@ -92,13 +95,17 @@ export class MatrixInspector {
       this.render();
     });
     root.querySelectorAll<HTMLButtonElement>('[data-move]').forEach(button => button.addEventListener('click', () => {
-      if (button.dataset.move === 'up') this.startRow -= this.pageSize;
-      if (button.dataset.move === 'down') this.startRow += this.pageSize;
+      if (button.dataset.move === 'up') this.startRow -= this.rowPageSize;
+      if (button.dataset.move === 'down') this.startRow += this.rowPageSize;
       if (button.dataset.move === 'left') this.startColumn -= this.pageSize;
       if (button.dataset.move === 'right') this.startColumn += this.pageSize;
       this.render();
     }));
     this.search.addEventListener('input', () => this.renderSearch());
+    get<HTMLSelectElement>('matrix-page-size').addEventListener('change', event => {
+      this.logicalPageSize = Number((event.target as HTMLSelectElement).value);
+      this.startRow = Math.floor(this.selectedRow / this.logicalPageSize) * this.logicalPageSize; this.render();
+    });
     get('matrix-export-json').addEventListener('click', () => this.download('json'));
     get('matrix-export-csv').addEventListener('click', () => this.download('csv'));
   }
@@ -113,7 +120,7 @@ export class MatrixInspector {
   /** The whole-matrix overview chooses both axes, not only a destination row. */
   inspect(row: number, column: number): void {
     this.selectedRow = row; this.selectedColumn = column;
-    this.startRow = Math.floor(row / this.pageSize) * this.pageSize;
+    this.startRow = Math.floor(row / this.rowPageSize) * this.rowPageSize;
     this.startColumn = Math.floor(column / this.pageSize) * this.pageSize;
     if (this.artifact && this.logicalMode) {
       const terms = logicalRow(this.artifact, row, this.diagonal.checked ? 1 : 0);
@@ -134,12 +141,13 @@ export class MatrixInspector {
     this.root.querySelector<HTMLElement>('#matrix-column-label')!.hidden = this.logicalMode;
     this.columnInput.disabled = this.logicalMode || !a;
     for (const move of ['left', 'right']) this.root.querySelector<HTMLElement>(`[data-move="${move}"]`)!.hidden = this.logicalMode;
+    this.root.querySelector<HTMLElement>('#matrix-page-size-label')!.hidden = !this.logicalMode;
     this.root.querySelector('#matrix-logical-help')!.textContent =
       `Defaults: diagonal ${this.diagonal.checked ? 1 : 0}, off-diagonal 0. Listed weights replace these defaults; they are not additions. ` +
       (this.diagonal.checked ? 'Self-weights of 1 are omitted; every other diagonal weight, including 0, is explicit. ' : 'Only nonzero weights are listed, including diagonal 1s. ') +
       '{} means this row uses only the defaults. This changes the notation, never W or execution. ReLU still follows W × x.';
     this.root.querySelector('#matrix-orientation-help')!.textContent = this.logicalMode
-      ? 'Each destination names a row; its dictionary names source columns and their exact weights. Select a weight to inspect the full row calculation below. Row navigation shows 12 destinations at a time.'
+      ? 'Each destination names a row; its dictionary names source columns and their exact weights. Select a weight to open its full row calculation. Choose how many destinations each page shows.'
       : 'Rows write the next state; columns read the current state. Every cell below is an actual signed integer weight, including zeros. Use the overview above or jump to any coordinate.';
     this.table.replaceChildren();
     this.logical.replaceChildren();
@@ -148,7 +156,7 @@ export class MatrixInspector {
     this.startRow = clamp(this.startRow); this.startColumn = clamp(this.startColumn);
     this.rowInput.max = this.columnInput.max = String(n - 1);
     this.rowInput.value = String(this.startRow); this.columnInput.value = String(this.startColumn);
-    const endRow = Math.min(n, this.startRow + this.pageSize), endCol = Math.min(n, this.startColumn + this.pageSize);
+    const endRow = Math.min(n, this.startRow + this.rowPageSize), endCol = Math.min(n, this.startColumn + this.pageSize);
     let digits = 1;
     for (let r = this.startRow; r < endRow; r++) a.rows[r].cols.forEach((col, i) => {
       if (col >= this.startColumn && col < endCol) digits = Math.max(digits, String(a.rows[r].weights[i]).length);
@@ -233,7 +241,7 @@ export class MatrixInspector {
 
   private renderSelection(): void {
     const a = this.artifact; if (!a) return;
-    this.selection.textContent = `W[${this.selectedRow}, ${this.selectedColumn}] = ${coefficient(a, this.selectedRow, this.selectedColumn)} · destination: ${a.registers[this.selectedRow].name} · source: ${a.registers[this.selectedColumn].name}. The full destination-row calculation is shown below.`;
+    this.selection.textContent = `W[${this.selectedRow}, ${this.selectedColumn}] = ${coefficient(a, this.selectedRow, this.selectedColumn)} · destination: ${a.registers[this.selectedRow].name} · source: ${a.registers[this.selectedColumn].name}. The full destination-row calculation is in the row calculation panel.`;
   }
 
   private renderSearch(): void {

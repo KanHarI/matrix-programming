@@ -1,0 +1,90 @@
+/* Debugger toolbar: shared by Run and Inspect, sticky on screens with room for it. */
+.debug-toolbar{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:10px 24px;padding:12px 20px;border-radius:12px;background:#f8faf6;box-shadow:0 1px 2px #152d1b0a}
+.debug-toolbar>.panel-heading{flex-direction:column;align-items:flex-start;justify-content:center;gap:4px;min-height:0;padding:0;border:0}
+.debug-toolbar .panel-heading h2{font-size:13px}
+.debug-toolbar .machine-stats{display:flex;flex-wrap:wrap;gap:6px 20px;padding:0;border:0}
+.debug-toolbar .machine-stats>div{display:flex;align-items:baseline;gap:6px;padding:0;border:0}
+.debug-toolbar .machine-stats strong{font-size:15px;white-space:nowrap}
+.debug-toolbar .machine-stats span{font-size:11px;margin:0}
+.debug-toolbar .transport{padding:0;gap:12px;flex-wrap:wrap;justify-content:flex-end}
+.debug-toolbar .transport-buttons{flex-wrap:wrap}
+.debug-toolbar .transport button{min-height:40px;font-size:12px}
+.status-group{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.pause-reason{font:11px var(--mono);color:#8a4b12;background:#fff1d9;border:1px solid #efd3a5;border-radius:20px;padding:4px 9px;white-space:nowrap}
+@media(min-width:700px) and (min-height:600px){.debug-toolbar{position:sticky;top:0;z-index:20;box-shadow:0 1px 2px #152d1b0a,0 6px 16px -10px #152d1b40}}
+@media(hover:hover) and (pointer:fine){.debug-toolbar button[data-key]::after{content:attr(data-key);display:inline-block;margin-left:8px;padding:0 5px;border:1px solid currentColor;border-radius:3px;font:10px/15px var(--mono);opacity:.55}}
+@media(max-width:1150px){.debug-toolbar{grid-template-columns:auto minmax(0,1fr)}.debug-toolbar .transport{grid-column:1/-1;justify-content:space-between}}
+@media(max-width:520px){.debug-toolbar{grid-template-columns:minmax(0,1fr);padding:14px}.debug-toolbar .machine-stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px 12px}.debug-toolbar .transport-buttons{flex-basis:100%}.debug-toolbar .transport button{min-height:44px;flex:1 1 auto}}
+
+/* Preset gallery. */
+.preset-strip{display:block}
+.preset-strip .program-picker{padding:22px}
+.preset-intro h2{font-size:17px;letter-spacing:-.2px}
+.preset-strip .preset-intro p{min-height:0;margin:6px 0 0;font-size:13px;line-height:1.6;color:var(--muted)}
+.preset-gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;margin-top:18px}
+.preset-card{width:100%;height:100%;display:flex;flex-direction:column;gap:8px;padding:16px;border-radius:10px;background:#fff;text-align:left;font-weight:400}
+.preset-card:hover:not(:disabled){background:#f8fbf4;border-color:#abc2ac}
+.preset-card[aria-current=true]{border-color:var(--teal);box-shadow:inset 0 0 0 1px var(--teal);background:#f3f9f1}
+.preset-card-heading{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.preset-card-name{font-size:14px;font-weight:600;color:var(--ink)}
+.preset-card-current{display:none;font:10px var(--mono);letter-spacing:.5px;text-transform:uppercase;color:var(--teal)}
+.preset-card[aria-current=true] .preset-card-current{display:inline}
+.preset-card-description{font-size:12px;line-height:1.6;color:#5f6f66}
+.preset-card-tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:auto;padding-top:4px}
+.preset-card-tags span{font:10px var(--mono);padding:2px 6px;border-radius:4px;background:#eef3ea;color:#4d6450}
+@media(max-width:520px){.preset-strip .program-picker{padding:16px}.preset-gallery{grid-template-columns:minmax(0,1fr)}}
+
+/* Editor gutter: breakpoints, error line, and room so the focus ring never covers text. */
+.editor-wrap #line-numbers{width:54px;min-width:54px}
+.editor-wrap #line-numbers span{position:relative}
+.editor-wrap #line-numbers span.breakable{cursor:pointer}
+.editor-wrap #line-numbers span.breakable:hover::before,.editor-wrap #line-numbers span.breakpoint::before{content:'';position:absolute;left:8px;top:6px;width:8px;height:8px;border-radius:50%;background:#e2677a}
+.editor-wrap #line-numbers span.breakable:not(.breakpoint):hover::before{opacity:.45}
+.editor-wrap #line-numbers span.breakpoint-unbound::before{background:transparent;box-shadow:inset 0 0 0 1.5px #e2677a}
+.editor-wrap #line-numbers span.error-line{color:#ffd0cf;background:#6b2f33;border-radius:3px}
+.editor-wrap textarea{padding-left:10px}
+
+/* Errors with actions: jump to the diagnostic line or the faulting coordinate. */
+.error .error-message{margin:0}
+.error-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:10px}
+.error-actions button{font:600 12px 'DM Sans',system-ui,sans-serif;padding:6px 10px;border-color:#e3b9b5;color:#8f3337}
+.error-location{font:11px/1.6 var(--mono);color:#8f3337}
+
+/* Row calculation: provenance, overflow and arrival highlight. */
+.row-detail{scroll-margin-top:120px}
+.row-meta{display:flex;flex-wrap:wrap;gap:5px;margin:-4px 0 12px}
+.row-meta:empty{display:none}
+.row-meta-chip{font:10px var(--mono);padding:3px 6px;border-radius:4px;background:#eef3ea;color:#56705a}
+.row-meta .row-meta-line{font:600 10px var(--mono);padding:3px 7px;border-radius:4px}
+.calculation-overflow{margin-top:8px;padding:8px 10px;border-radius:5px;background:#fff0f2;border:1px solid #efc3cc;color:#a2394f;font:11px/1.6 var(--mono)}
+@keyframes row-detail-flash{from{box-shadow:inset 0 0 0 2px var(--teal)}to{box-shadow:inset 0 0 0 2px transparent}}
+.row-detail-flash{animation:row-detail-flash 1.4s ease-out}
+
+/* Inspect side column: row calculation, instructions, then source. */
+.inspect-source{display:flex;flex-direction:column;gap:16px}
+#app-panel-inspect .source-panel{position:static}
+
+/* Compiled instruction listing, grouped by source line. */
+.instructions-note{font-size:12px;line-height:1.6;color:var(--muted);padding:12px 18px 4px}
+.instruction-list{position:relative;max-height:360px;overflow:auto;padding:6px 10px 12px}
+.instruction-line>summary{display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;list-style:none;cursor:pointer}
+.instruction-line>summary::-webkit-details-marker{display:none}
+.instruction-line>summary:hover{background:#f4f7f0}
+.instruction-line.active>summary{background:#eaf5dc;box-shadow:inset 3px 0 var(--teal)}
+.breakpoint-toggle{flex-shrink:0;width:18px;height:18px;padding:0;border-radius:50%;border:1.5px solid #dcb6bd;background:#fff}
+.breakpoint-toggle:hover:not(:disabled){background:#f6d5da;border-color:#d58390}
+.breakpoint-toggle[aria-pressed=true],.breakpoint-toggle[aria-pressed=true]:hover:not(:disabled){background:#e2677a;border-color:#c8505f}
+.instruction-line-number{flex-shrink:0;min-width:34px;font:11px var(--mono);color:#7d8b76}
+.instruction-line code{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font:12px var(--mono);color:var(--ink)}
+.instruction-line-count{flex-shrink:0;font:10px var(--mono);color:#94a08c;white-space:nowrap}
+.instruction-markers{display:flex;flex-direction:column;gap:3px;padding:4px 0 8px 34px}
+.instruction-marker{display:flex;align-items:baseline;gap:10px;padding:5px 8px;text-align:left;font-weight:400}
+.instruction-marker.active{border-color:var(--teal);background:#eef7e6}
+.instruction-register{min-width:44px;font:10px var(--mono);color:#94a08c}
+.instruction-label{flex:1;min-width:0;font:11px var(--mono);overflow-wrap:anywhere}
+.instruction-context{font-size:10px;color:var(--muted)}
+
+/* Coordinates changed by the last commit, and the per-tick change log. */
+.math-overview button.math-value.math-changed{box-shadow:inset 0 -3px #62b48f}
+.history-panel li small{display:block;margin-bottom:4px;color:#98a390;font-size:10px;line-height:1.6;overflow-wrap:anywhere}
+.math-overview button.math-value.math-changed.math-input-coordinate{box-shadow:inset 3px 0 #5b97c5,inset 0 -3px #62b48f}

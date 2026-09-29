@@ -29,7 +29,8 @@ export class MathOverview {
     root.setAttribute('aria-label', 'Mathematical matrix and vector overview');
   }
 
-  render(artifact?: Artifact, machine?: Machine, ledEnabled = true, running = false): void {
+  /** `changed` lists coordinates that differ from the previous recorded commit. */
+  render(artifact?: Artifact, machine?: Machine, ledEnabled = true, running = false, changed: ReadonlySet<number> = new Set()): void {
     if (!artifact || !machine) {
       this.artifact = undefined;
       this.root.innerHTML = '<p class="math-empty">Compile a program to see its matrix and state vectors.</p>';
@@ -55,6 +56,8 @@ export class MathOverview {
         element.classList.toggle('math-negative', value !== undefined && value < 0);
         element.classList.toggle('math-clamped', kind === 'candidate' && value !== undefined && Boolean(machine.raw && machine.raw[index]! < 0n));
         element.classList.toggle('math-overflow', kind === 'candidate' && value !== undefined && value > BigInt(artifact.registers[index]!.bound));
+        // After a paused commit, mark what that update changed; a running view would only flicker.
+        element.classList.toggle('math-changed', kind === 'current' && !running && machine.phase === 'ready' && changed.has(index));
         const label = `${kind === 'current' ? 'Current vector' : kind === 'raw' ? 'Before ReLU' : 'After ReLU'}, coordinate ${index}, ${artifact.registers[index]!.name}: ${text}`;
         element.setAttribute('aria-label', label);
         element.title = `${label}. Click to inspect this row.`;
