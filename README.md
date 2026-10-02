@@ -80,6 +80,7 @@ npm run test:browser # Chromium integration tests
 | [Optimized primality](examples/prime-optimized.matrix) | Odd trial divisors up to √n, repeated-doubling remainders, overflow-safe square increments advanced by 8 instead of multiplying. Reuses one remainder body at two call sites. |
 | [Binary-division primality](examples/prime-binary.matrix) | Separate constant-storage variant: binary long division scans 32 input bits per remainder, with at most one divisor subtraction per bit. Keeps incremental squares. Faster for large quotients, but more overhead on small inputs; 314×314 versus 286×286 for the optimized preset. Starts at 4,294,967,295. |
 | [Hello](examples/hello.matrix) | Prints `Hello, world!` and draws an H using 26 individual RGB pixel emissions. |
+| [Screen sieve](examples/screen-sieve.matrix) | Uses the 16×16 screen as memory: crosses out composites with pixel writes, then reads them back with `readpixel` to paint and count the 54 primes below 256. 61,402 matrix updates. |
 | [Greeting](examples/greeting.matrix) | Reads until Enter/EOF and prints `Greetings, <NAME>`. Stores 64 Unicode scalar values; drains and truncates excess input. |
 | [Parallel countdowns](examples/parallel.matrix) | Two independent computations advance together, then join their results. |
 | [Recursive factorial](examples/recursive-factorial.matrix) | `rec fn factorial`, with 16 fixed activation banks and source-level multiplication. Starts at 5! = 120; 0–12 fit in u32. |
@@ -122,7 +123,7 @@ Structured parallel computations are first-class: branches advance together, kee
 
 See [DESIGN.md](DESIGN.md) for the discussion record: execution mechanics, language primitives, shared functions, explicit recursive functions, stack implementations, compiler architecture, and the original primality example.
 
-See [IO.md](IO.md) for the end gate, LED, console character input/output, and six-coordinate RGB pixel-output port (`X, Y, R, G, B, emission_flag`). The browser retains the 16-by-16 screen image outside the matrix.
+See [IO.md](IO.md) for the end gate, LED, console character input/output, and six-coordinate RGB pixel-output port (`X, Y, R, G, B, emission_flag`). The browser retains the 16-by-16 screen image outside the matrix; `readpixel(x, y, r, g, b)` reads a whole pixel back (or `readpixel(x, y, channel)` one channel), so programs can use the screen as memory.
 
 See [RUNTIME.md](RUNTIME.md) for the numeric model, the 32-bit versus 64-bit tradeoff, overflow semantics, and the proposed WebAssembly backend.
 

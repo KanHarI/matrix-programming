@@ -57,7 +57,7 @@ app.innerHTML = `
         </section>
         <section class="outputs" aria-label="Output devices">
           <div class="panel console-panel"><div class="panel-heading"><h2><span class="terminal-mark" aria-hidden="true">&gt;_</span> Console</h2><span id="console-badge" class="device-badge">not linked</span></div><pre id="console-output" role="log" aria-live="polite" aria-label="Console output"></pre><form id="console-form"><input id="console-input" aria-label="Console input" placeholder="Type input, then press Enter" autocomplete="off" /><button id="send-input" type="submit" aria-label="Send console input">↵</button><button id="send-eof" type="button" title="Signal end of input">EOF</button></form><p id="input-hint" class="input-hint">Input is delivered only when the matrix requests it.</p></div>
-          <div class="panel screen-panel"><div class="panel-heading"><h2>Pixel screen</h2><span id="screen-badge" class="device-badge">not linked</span></div><div class="screen-content"><canvas id="screen" width="16" height="16" aria-label="16 by 16 RGB output display"></canvas><div><strong>16 × 16</strong><p>One pixel per emission.<br />X, Y, R, G, B + emit.<br />Just six coordinates.</p><div class="gate"><span id="led" class="led"></span><span id="led-text">LED not linked</span></div><div class="gate end-gate"><span id="end-light" class="led"></span><span id="end-text">End gate: 0</span></div></div></div></div>
+          <div class="panel screen-panel"><div class="panel-heading"><h2>Pixel screen</h2><span id="screen-badge" class="device-badge">not linked</span></div><div class="screen-content"><canvas id="screen" width="16" height="16" aria-label="16 by 16 RGB output display"></canvas><div><strong>16 × 16</strong><p id="screen-ports">One pixel per emission.<br />X, Y, R, G, B + emit.<br />Just six coordinates.</p><div class="gate"><span id="led" class="led"></span><span id="led-text">LED not linked</span></div><div class="gate end-gate"><span id="end-light" class="led"></span><span id="end-text">End gate: 0</span></div></div></div></div>
         </section>
         <details class="panel history-panel"><summary>Recent snapshots <span id="history-count">0 recorded</span></summary><ol id="history"></ol><p>Last 24 displayed commit snapshots. Run mode samples after batches; change counts compare snapshots. Previews never change state or produce I/O.</p></details>
       </div>
@@ -454,7 +454,7 @@ function chooseExample(id: string): void {
     const preset = compile(example.source, { optimizations: readOptimizationFlags() });
     $<HTMLInputElement>('enable-output').checked = Boolean(preset.devices.consoleOutput);
     $<HTMLInputElement>('enable-input').checked = Boolean(preset.devices.consoleInput);
-    $<HTMLInputElement>('enable-screen').checked = Boolean(preset.devices.screen);
+    $<HTMLInputElement>('enable-screen').checked = Boolean(preset.devices.screen || preset.devices.screenRead);
     $<HTMLInputElement>('enable-led').checked = preset.led !== undefined;
   } catch (error) { setError(error); }
   compileProgram();
@@ -587,6 +587,10 @@ function renderCalculation(): void {
   if (inputDevice && [inputDevice.available, inputDevice.eof, inputDevice.codepoint].includes(selectedRow)) {
     const note = document.createElement('p'); note.textContent = 'Input latch: the reserved console packet is added through the fixed input map B before ReLU. It is consumed only on commit.'; details.append(note);
   }
+  const pixelRead = artifact.devices.screenRead;
+  if (pixelRead && [pixelRead.r, pixelRead.g, pixelRead.b].includes(selectedRow)) {
+    const note = document.createElement('p'); note.textContent = 'Pixel read latch: when the read request is set, the host adds this channel of pixel (x, y) through the fixed input map B before ReLU. A capture row keeps it until the next read; the matrix stores no framebuffer.'; details.append(note);
+  }
 }
 /** Where a coordinate comes from: its kind, source line and, for program counters, the instruction. */
 function renderRowMeta(register: Artifact['registers'][number]): void {
@@ -626,11 +630,17 @@ function renderOutputs(): void {
   document.querySelector<HTMLElement>('.console-panel')!.hidden = !consoleLinked;
   $('console-form').hidden = !devices?.consoleInput;
   $('input-hint').hidden = !devices?.consoleInput;
-  $('screen').hidden = !devices?.screen;
-  document.querySelector('.screen-panel h2')!.textContent = devices?.screen ? 'Pixel screen' : 'Output gates';
-  document.querySelectorAll<HTMLElement>('.screen-content strong, .screen-content p').forEach(element => { element.hidden = !devices?.screen; });
+  const screenLinked = Boolean(devices?.screen || devices?.screenRead);
+  $('screen').hidden = !screenLinked;
+  document.querySelector('.screen-panel h2')!.textContent = screenLinked ? 'Pixel screen' : 'Output gates';
+  document.querySelectorAll<HTMLElement>('.screen-content strong, .screen-content p').forEach(element => { element.hidden = !screenLinked; });
+  // Reads share the x and y ports, so count distinct coordinates rather than port names.
+  const screenPorts = new Set([...Object.values(devices?.screen ?? {}), ...Object.values(devices?.screenRead ?? {})]).size;
+  const portLines = [devices?.screen ? 'Write: X, Y, R, G, B + emit.' : '', devices?.screenRead ? 'Read: X, Y + request → R, G, B.' : ''].filter(Boolean);
+  const portText = devices?.screen && !devices.screenRead ? 'One pixel per emission.\nX, Y, R, G, B + emit.\nJust six coordinates.' : `The screen is also memory.\n${portLines.join('\n')}`;
+  if ($('screen-ports').dataset.text !== portText) { $('screen-ports').innerText = portText; $('screen-ports').dataset.text = portText; }
   $('console-badge').textContent = consoleLinked ? [devices?.consoleOutput ? 'OUT' : '', devices?.consoleInput ? 'IN' : ''].filter(Boolean).join(' + ') : 'not linked';
-  $('screen-badge').textContent = devices?.screen ? '6 coordinates' : consoleLinked ? 'No screen' : 'No optional devices';
+  $('screen-badge').textContent = screenLinked ? `${screenPorts} coordinates` : consoleLinked ? 'No screen' : 'No optional devices';
   $<HTMLInputElement>('console-input').disabled = !devices?.consoleInput || machine?.status === 'ended' || machine?.status === 'fault';
   $<HTMLButtonElement>('send-input').disabled = $<HTMLInputElement>('console-input').disabled;
   $<HTMLButtonElement>('send-eof').disabled = $<HTMLInputElement>('console-input').disabled;
@@ -711,7 +721,7 @@ function render(): void {
 
 // Feature tags come from the preset source itself, so they cannot drift from the program.
 const presetFeatures: [RegExp, string][] = [
-  [/\b(print|putc)\(/, 'console out'], [/\bread\(/, 'console in'], [/\bpixel\(/, 'screen'],
+  [/\b(print|putc)\(/, 'console out'], [/\bread\(/, 'console in'], [/\bpixel\(/, 'screen'], [/\breadpixel\(/, 'screen memory'],
   [/\brec fn\b/, 'recursion'], [/\bparallel\b/, 'parallel'], [/\blet \w+\[/, 'arrays'],
 ];
 const presetTags = (text: string) => presetFeatures.filter(([pattern]) => pattern.test(text)).map(([, tag]) => tag);
