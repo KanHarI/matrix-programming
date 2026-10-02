@@ -1,0 +1,39 @@
+// The screen doubles as memory: pixel (x, y) stands for n = 16y + x.
+// readpixel(x, y, channel) reads one channel back (0 red, 1 green, 2 blue);
+// readpixel(x, y, r, g, b) stores all three from a single request.
+// The matrix still stores no framebuffer; the host answers each read.
+fn main() {
+  // 0 and 1 are not prime.
+  pixel(0, 0, 70, 70, 70);
+  pixel(1, 0, 70, 70, 70);
+  // Cross out the multiples of each prime below 16 in red.
+  let p = 2;
+  while (p < 16) {
+    if (readpixel(p, 0, 0) == 0) {
+      let x = p + p;
+      let y = 0;
+      if (x > 15) { x = x - 16; y = 1; }
+      while (y < 16) {
+        pixel(x, y, 200, 40, 60);
+        x = x + p;
+        if (x > 15) { x = x - 16; y = y + 1; }
+      }
+    }
+    p = p + 1;
+  }
+  // A cell with no red was never crossed out: paint it green and count it.
+  let count = 0;
+  let row = 0;
+  while (row < 16) {
+    let column = 0;
+    while (column < 16) {
+      if (readpixel(column, row, 0) == 0) {
+        pixel(column, row, 0, 200, 120);
+        count = count + 1;
+      }
+      column = column + 1;
+    }
+    row = row + 1;
+  }
+  return count;
+}

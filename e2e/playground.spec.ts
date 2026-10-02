@@ -88,6 +88,24 @@ test('hello emits exact console text and H pixels', async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+test('the screen sieve uses pixels as memory and reads them back', async ({ page }) => {
+  const errors = await open(page);
+  await example(page, 'screen-sieve');
+  expect(await page.locator('#enable-screen').isChecked()).toBe(true);
+  await expect(page.locator('#screen-badge')).toHaveText('10 coordinates');
+  await expect(page.locator('#screen-ports')).toContainText('Read: X, Y + request → R, G, B.');
+  await run(page);
+  await expect(page.locator('#led-text')).toHaveText('Result LED: on (54)');
+  const pixels = await page.locator('#screen').evaluate((canvas: HTMLCanvasElement) => [...canvas.getContext('2d')!.getImageData(0, 0, 16, 16).data]);
+  const prime = (n: number) => n > 1 && Array.from({ length: n - 2 }, (_, i) => i + 2).every(d => n % d !== 0);
+  for (let n = 0; n < 256; n++) expect(pixels.slice(n * 4, n * 4 + 3), `n=${n}`).toEqual(prime(n) ? [0, 200, 120] : n < 2 ? [70, 70, 70] : [200, 40, 60]);
+  // The read latch explains itself in Inspect, and the formula gains the input term.
+  await showTab(page, 'inspect');
+  await expect(page.locator('.math-formula')).toContainText('Bu');
+  await page.screenshot({ path: 'test-results/screen-sieve-desktop.png', fullPage: true });
+  expect(errors).toEqual([]);
+});
+
 test('greeting reads a Unicode name, blocks at requests, and resumes', async ({ page }) => {
   const errors = await open(page);
   await example(page, 'greeting');

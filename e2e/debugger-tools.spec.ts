@@ -190,9 +190,10 @@ test('the transport stays on screen while scrolling a large matrix view', async 
 test('the preset gallery shows every program with its inputs and devices', async ({ page }) => {
   const errors = await open(page);
   await showTab(page, 'presets');
-  await expect(page.locator('.preset-card')).toHaveCount(9);
+  await expect(page.locator('.preset-card')).toHaveCount(10);
   await expect(page.locator('.preset-card[data-preset="greeting"] .preset-card-tags')).toContainText('console in');
   await expect(page.locator('.preset-card[data-preset="hello"] .preset-card-tags')).toContainText('screen');
+  await expect(page.locator('.preset-card[data-preset="screen-sieve"] .preset-card-tags')).toContainText('screen memory');
   await expect(page.locator('.preset-card[data-preset="recursive-factorial"] .preset-card-tags')).toContainText('recursion');
   await page.locator('.preset-card[data-preset="greeting"]').click();
   await expect(page.locator('#app-panel-program')).toBeVisible();

@@ -81,6 +81,7 @@ interface Instruction {
   comparison?: string;
   returnValue?: number;
   pc?: number; dispatch?: number; preDispatch?: number;
+  request?: number;
 }
 interface Fn { decl: FunctionDecl; instanceName: string; depth: number; context: Context; params: number[]; result: number; code: Instruction[]; calls: Instruction[]; root: boolean; done?: number }
 interface Context { name: string; functions: Map<string, Fn>; code: Instruction[]; pure: boolean; root?: Fn }
@@ -102,7 +103,7 @@ export function compile(source: string, options: CompileOptions = {}): Artifact 
     definitions.set(fn.name, fn);
   }
   if (!definitions.has('main')) fail('A main function is required');
-  const builtinNames = new Set(['print', 'putc', 'pixel', 'read', 'halt', 'led']);
+  const builtinNames = new Set(['print', 'putc', 'pixel', 'readpixel', 'read', 'halt', 'led']);
   for (const name of definitions.keys()) if (builtinNames.has(name)) fail(`'${name}' is a reserved device builtin`);
   // Validate the whole call graph, including unused functions. Recursion cannot
   // accidentally alias a live activation's registers or return address.
@@ -153,16 +154,35 @@ export function compile(source: string, options: CompileOptions = {}): Artifact 
     if (contexts.length >= 32) fail('Compiler safety limit: at most 32 execution contexts');
     const c: Context = { name, functions: new Map(), code: [], pure }; contexts.push(c); return c;
   };
-  function device(name: 'consoleOutput' | 'consoleInput' | 'screen', context: Context, line: number) {
+  let screenAddress: { x: number; y: number } | undefined;
+  let heldPixel: number[] = [];
+  function device(name: 'consoleOutput' | 'consoleInput' | 'screen' | 'screenRead', context: Context, line: number) {
     if (context.pure) fail(`Parallel computations must be pure; '${name}' is an I/O effect`, line);
-    if (options.devices?.[name] === false) fail(`The ${name} device is disabled`, line);
+    // Pixel readback is part of the screen device, not a separate peripheral.
+    const option = name === 'screenRead' ? 'screen' : name;
+    if (options.devices?.[option] === false) fail(`The ${option} device is disabled`, line);
     if (!devices[name]) {
       const port = (label: string, bound: number, retained = false) => {
-        const id = m.add(`${name}.${label}`, 'io', bound); if (retained) m.hold(id); return id;
+        const id = m.add(`${option}.${label}`, 'io', bound); if (retained) m.hold(id); return id;
       };
       if (name === 'consoleOutput') devices.consoleOutput = { codepoint: port('codepoint', MAX_U32, true), emit: port('emit', 1) };
       if (name === 'consoleInput') devices.consoleInput = { request: port('request', 1), available: port('available', 1), eof: port('eof', 1), codepoint: port('codepoint', 0x10ffff) };
-      if (name === 'screen') devices.screen = { x: port('x', MAX_U32, true), y: port('y', MAX_U32, true), r: port('r', MAX_U32, true), g: port('g', MAX_U32, true), b: port('b', MAX_U32, true), emit: port('emit', 1) };
+      // Writes and reads address pixels through the same x and y coordinates.
+      if (option === 'screen') screenAddress ??= { x: port('x', MAX_U32, true), y: port('y', MAX_U32, true) };
+      if (name === 'screen') devices.screen = { ...screenAddress!, r: port('r', MAX_U32, true), g: port('g', MAX_U32, true), b: port('b', MAX_U32, true), emit: port('emit', 1) };
+      if (name === 'screenRead') {
+        const request = port('readRequest', 1);
+        const latches = (['r', 'g', 'b'] as const).map(channel => port(`latch.${channel}`, 255));
+        devices.screenRead = { ...screenAddress!, request, r: latches[0]!, g: latches[1]!, b: latches[2]! };
+        // Each delivered channel stays in a capture row until the next read:
+        // the request clears it (every channel is at most 255), then the latch
+        // refills it one update later. Ordinary copies read it like any word.
+        heldPixel = latches.map((latch, i) => {
+          const held = m.add(`screen.read.${'rgb'[i]}`, 'io', 255);
+          m.terms(held, [[held, 1], [request, -255], [latch, 1]]);
+          return held;
+        });
+      }
     }
   }
   function ensureFn(context: Context, name: string, root = false, depth = 0): Fn {
@@ -212,9 +232,11 @@ export function compile(source: string, options: CompileOptions = {}): Artifact 
     function access(name: string, index: Expr, line: number, write?: number): number {
       const slots = lookup(name, line);
       if (!Array.isArray(slots)) fail(`'${name}' is not an array`, line);
-      const array = slots as number[];
+      return select(slots as number[], index, line, write, 'Array index', `'${name}' index`);
+    }
+    function select(array: number[], index: Expr, line: number, write: number | undefined, literal: string, dynamic: string): number {
       if (index.kind === 'number') {
-        if (!Number.isInteger(index.value) || index.value < 0 || index.value >= array.length) fail(`Array index outside 0..${array.length - 1}`, line);
+        if (!Number.isInteger(index.value) || index.value < 0 || index.value >= array.length) fail(`${literal} outside 0..${array.length - 1}`, line);
         return write === undefined ? array[index.value] : copy(write, array[index.value], line);
       }
       const idx = expression(index), out = write ?? temp(line), exits: Instruction[] = [];
@@ -225,7 +247,7 @@ export function compile(source: string, options: CompileOptions = {}): Artifact 
         exits.push(jump(line)); test.no = jump(line);
       }
       const fault = data(`${prefix}.arrayBoundsFault.${++serial}`, context.name, line, 1);
-      faults.push({ register: fault, message: `Line ${line}: '${name}' index is outside 0..${array.length - 1}` }); copy(one, fault, line);
+      faults.push({ register: fault, message: `Line ${line}: ${dynamic} is outside 0..${array.length - 1}` }); copy(one, fault, line);
       const done = jump(line); for (const exit of exits) exit.next = done;
       return out;
     }
@@ -234,8 +256,36 @@ export function compile(source: string, options: CompileOptions = {}): Artifact 
         const count = (n: number) => { if (args.length !== n) fail(`${name} expects ${n} argument(s)`, line); };
         if (name === 'read') {
           count(0); device('consoleInput', context, line);
-          emit('readRequest', line, 'request character');
+          emit('readRequest', line, 'request character').request = devices.consoleInput!.request;
           const out = temp(line); Object.assign(emit('readReceive', line, 'receive character'), { target: out }); return out;
+        }
+        if (name === 'readpixel') {
+          // readpixel(x, y, channel) returns one channel; readpixel(x, y, r, g, b)
+          // stores all three, delivered by one request, into variables or elements.
+          if (args.length !== 3 && args.length !== 5) fail('readpixel expects 3 arguments (x, y, channel) or 5 (x, y, r, g, b)', line);
+          const targets = args.slice(2);
+          if (args.length === 5) for (const target of targets) {
+            if (target.kind !== 'variable' && target.kind !== 'index') fail('readpixel(x, y, r, g, b) stores into variables or array elements', line);
+            // Index expressions run after the request; another read there would overwrite the triplet.
+            if (callsIn(target).length) fail('readpixel targets cannot contain calls', line);
+          }
+          device('screenRead', context, line);
+          const port = devices.screenRead!;
+          const [x, y] = args.slice(0, 2).map(expression);
+          copy(x, port.x, line); copy(y, port.y, line);
+          emit('readRequest', line, 'request pixel').request = port.request;
+          const held = heldPixel;
+          if (args.length === 3) {
+            // A later read reuses the capture rows, so the result needs its own word.
+            const channel = targets[0];
+            if (channel.kind === 'number') return copy(select(held, channel, line, undefined, 'readpixel channel', 'readpixel channel'), temp(line), line);
+            return select(held, channel, line, undefined, 'readpixel channel', 'readpixel channel');
+          }
+          targets.forEach((target, i) => {
+            if (target.kind === 'variable') copy(held[i], scalar(target.name, line), line);
+            else access((target as Expr & { kind: 'index' }).name, (target as Expr & { kind: 'index' }).index, line, held[i]);
+          });
+          return zero;
         }
         if (name === 'halt') { count(0); if (context.pure) fail('Parallel computations cannot halt the whole program', line); emit('halt', line, 'end'); return zero; }
         if (name === 'led') { count(1); led = expression(args[0]); return zero; }
@@ -605,7 +655,9 @@ export function compile(source: string, options: CompileOptions = {}): Artifact 
   const allCode = contexts.flatMap(c => c.code);
   if (devices.consoleOutput && !allCode.some(i => i.op === 'emit' && i.emit === devices.consoleOutput!.emit)) delete devices.consoleOutput;
   if (devices.screen && !allCode.some(i => i.op === 'emit' && i.emit === devices.screen!.emit)) delete devices.screen;
-  if (devices.consoleInput && !allCode.some(i => i.op === 'readRequest')) delete devices.consoleInput;
+  const requested = (port: number) => allCode.some(i => i.op === 'readRequest' && i.request === port);
+  if (devices.consoleInput && !requested(devices.consoleInput.request)) delete devices.consoleInput;
+  if (devices.screenRead && !requested(devices.screenRead.request)) delete devices.screenRead;
   for (const [index, i] of allCode.entries()) {
     i.pc = m.add(`${i.context.name}.pc.${index}.${i.label}`, 'control', 1, i === main.code[0] ? 1 : 0, i.context.name, i.line); m.hold(i.pc);
     // PCs remain stable for the entire 11-update instruction period. Sample
@@ -746,7 +798,7 @@ export function compile(source: string, options: CompileOptions = {}): Artifact 
         route(i.dispatch!, i.next);
         if (i.directDelta !== undefined) m.terms(i.target!, [[i.dispatch!, i.directDelta]]);
         if (i.op === 'emit') m.terms(i.emit!, [[i.dispatch!, 1]]);
-        if (i.op === 'readRequest') m.terms(devices.consoleInput!.request, [[i.dispatch!, 1]]);
+        if (i.op === 'readRequest') m.terms(i.request!, [[i.dispatch!, 1]]);
         if (i.op === 'fork') for (const root of i.branches!) route(i.dispatch!, root.code[0]);
       }
     }

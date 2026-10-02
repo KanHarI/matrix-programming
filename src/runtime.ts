@@ -13,6 +13,7 @@ export type DeviceEvent =
 const I64_MAX = (1n << 63n) - 1n;
 const validScalar = (n: number) => n <= 0x10ffff && !(n >= 0xd800 && n <= 0xdfff);
 const uint = (n: number) => Number.isInteger(n) && n >= 0 && n <= MAX_U32;
+const pixelReadBounds = 'Pixel read is outside the 16×16 display bounds';
 
 export const referenceBackend: MatrixBackend = {
   name: 'Exact JavaScript / BigInt',
@@ -62,6 +63,13 @@ export function validateArtifact(a: Artifact): void {
     if (new Set(Object.values(input)).size !== 4) throw new Error('Console input ports must be distinct');
     for (const i of [input.available, input.eof, input.codepoint]) {
       if (a.rows[i]!.weights.some(w => w !== 0)) throw new Error('Input latch rows must be zero in W');
+    }
+  }
+  const read = a.devices.screenRead;
+  if (read) {
+    if (new Set(Object.values(read)).size !== 6) throw new Error('Pixel read ports must be distinct');
+    for (const i of [read.r, read.g, read.b]) {
+      if (a.rows[i]!.weights.some(w => w !== 0)) throw new Error('Pixel read latch rows must be zero in W');
     }
   }
 }
@@ -144,9 +152,19 @@ export class Machine {
     return this.fail(`Register ${name} exceeds its ${bound} bound (${value})`, register);
   }
 
+  /** Byte offset of the pixel a read requests, or -1 when the address is invalid. */
+  private pixelOffset(state: Uint32Array): number {
+    const read = this.artifact.devices.screenRead!;
+    const [x, y] = [state[read.x]!, state[read.y]!];
+    return x > 15 || y > 15 ? -1 : (y * 16 + x) * 3;
+  }
+
   private multiply(): boolean {
     const port = this.artifact.devices.consoleInput;
+    const read = this.artifact.devices.screenRead;
     this.reserved = null;
+    const reading = Boolean(read && this.state[read.request]! > 0);
+    if (reading && this.pixelOffset(this.state) < 0) return this.fail(pixelReadBounds, read!.request);
     if (port && this.state[port.request]! > 0) {
       if (this.queue.length) this.reserved = { available: 1, eof: 0, codepoint: this.queue[0]! };
       else if (this.closed) this.reserved = { available: 1, eof: 1, codepoint: 0 };
@@ -157,6 +175,11 @@ export class Machine {
       this.raw[port.available] = BigInt(this.reserved.available);
       this.raw[port.eof] = BigInt(this.reserved.eof);
       this.raw[port.codepoint] = BigInt(this.reserved.codepoint);
+    }
+    // Reading has no side effect, so previews may show it and need no reservation.
+    if (reading) {
+      const offset = this.pixelOffset(this.state);
+      [read!.r, read!.g, read!.b].forEach((latch, channel) => { this.raw![latch] = BigInt(this.pixels[offset + channel]!); });
     }
     this.status = 'ready';
     this.phase = 'multiplied';
@@ -185,6 +208,8 @@ export class Machine {
     if (screen && next[screen.emit]) {
       if (next[screen.x]! > 15 || next[screen.y]! > 15 || [screen.r, screen.g, screen.b].some(i => next[i]! > 255)) return this.fail('Pixel output is outside the 16×16 RGB display bounds');
     }
+    const read = this.artifact.devices.screenRead;
+    if (read && next[read.request] && this.pixelOffset(next) < 0) return this.fail(pixelReadBounds, read.request);
     this.state = next;
     this.tick++;
     if (this.reserved && !this.reserved.eof) this.queue.shift();

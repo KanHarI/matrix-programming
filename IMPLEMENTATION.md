@@ -81,6 +81,7 @@ These limits are diagnostics, not a runtime timeout or a promise of fast executi
 | Console output | `print("literal")`, `putc(codepoint)` | Codepoint + emission flag. |
 | Console input | `read()` | Request + available/EOF/codepoint latches. |
 | Pixel screen | `pixel(x, y, r, g, b)` | X, Y, R, G, B, emission flag: six coordinates. |
+| Pixel readback | `readpixel(x, y, channel)`, `readpixel(x, y, r, g, b)` | Shares X and Y; adds a request flag and R, G, B latches. |
 
 The browser retains the 16×16 image outside the matrix. Coordinates must be in
 0–15 and RGB channels in 0–255 when emitted. Codepoints must be valid Unicode
@@ -100,6 +101,20 @@ open. Queued input is reserved during Multiply and consumed only on Commit. The
 fixed input injection B places a packet in the three latch rows, whose W rows are
 zero; compiled delay rows capture it before it clears. The host never writes data
 or control registers to execute an instruction.
+
+Pixel reads turn the retained image into 768 bytes of memory.
+`readpixel(x, y, r, g, b)` mirrors `pixel`: one request delivers all three
+channels, stored into the three named variables or array elements.
+`readpixel(x, y, channel)` returns one channel (0 red, 1 green, 2 blue) as an
+expression; a dynamic channel above 2 faults like an array index.
+
+Like `read()`, a read raises a request for one update, and the host adds the
+pixel's channels to three latch rows that are zero in W. Each channel then lands
+in a capture row, `held = ReLU(held − 255·request + latch)`: the request clears
+it and the latch refills it one update later, so ordinary copies move the
+triplet out. The matrix still stores no framebuffer. A read never blocks,
+consumes nothing, and sees every pixel write committed before it. X or Y outside
+0–15 faults before the request commits. Reads share the screen toggle.
 
 `read()` returns a Unicode scalar, or **4294967295 for EOF**. This non-Unicode
 sentinel is distinguishable from NUL (0), LF (10), and an empty open stream. EOF

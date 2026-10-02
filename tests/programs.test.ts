@@ -62,6 +62,19 @@ describe('requested programs execute as actual matrices', () => {
     }
     expect(m.events.filter(e => e.type === 'pixel')).toHaveLength(26);
   });
+  test('the screen sieve keeps its memory in pixels and finds the 54 primes below 256', () => {
+    const m = run('screen-sieve', undefined, undefined, false, 2_000_000);
+    expect(m.state[m.artifact.result!]).toBe(54);
+    const prime = (n: number) => { if (n < 2) return false; for (let d = 2; d * d <= n; d++) if (n % d === 0) return false; return true; };
+    for (let n = 0; n < 256; n++) {
+      const [r, g] = m.pixels.slice(n * 3, n * 3 + 2);
+      expect(prime(n) ? [r, g] : [r !== 0, g], `n=${n}`).toEqual(prime(n) ? [0, 200] : [true, n < 2 ? 70 : 40]);
+    }
+    // Reads add a request flag and three latches; x and y are shared with writes.
+    const { screen, screenRead } = m.artifact.devices;
+    expect([screenRead!.x, screenRead!.y]).toEqual([screen!.x, screen!.y]);
+    expect(new Set([...Object.values(screen!), ...Object.values(screenRead!)]).size).toBe(10);
+  }, 120_000);
   test('greeting blocks for input then records and echoes Unicode name', () => {
     const a = compile(source('greeting')), m = new Machine(a, {}, backend);
     m.runBatch(100_000); expect(m.status).toBe('waiting');
