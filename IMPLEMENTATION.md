@@ -135,6 +135,17 @@ formats are also valid JavaScript/JSON. Dense copy is limited to 10 million
 entries and 32 MiB; larger exports use sparse JSON/CSV. Denied clipboard access
 opens a selectable manual-copy dialog instead of reporting false success.
 
+Copy Python program (`src/python-program.ts`) emits a dependency-free Python 3
+script: W as sparse `(column, weight)` rows, coordinate names, bounds, `x_0`,
+main's parameter coordinates and port indices. Its loop mirrors `Machine.step`:
+multiply (skipping zero coordinates), write console input latches when the
+request coordinate is set, ReLU, then the checked commit in the same order:
+bounds, fault gates, console scalar, pixel range. Only after that does it emit
+characters or pixels. Parameters are optional positional arguments that default
+to the values in the page. Exit status is 0 at the end gate, 1 on a fault and 2
+on an invalid input. Tests run every preset except the matrix computer through
+`python3` and compare stdout, stderr and the exit status with `Machine`.
+
 The greeting stores at most 64 scalars. It continues consuming excess input until
 LF/EOF, then prints the retained prefix. This is a deliberate bounded-memory
 example, not a claim of unlimited name storage.

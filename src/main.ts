@@ -5,6 +5,7 @@ import './workspace-tabs.css';
 import './compiler-options.css';
 import './debugger.css';
 import { matrixPython, vectorPython } from './matrix-copy';
+import { pythonProgram } from './python-program';
 import { activeMarkers, breakpointCondition, diagnosticLine, lineStepCondition, markerLines, stateChanges, type StopCondition, type StopReason } from './debugger';
 import { InstructionList } from './instruction-list';
 import { compile } from './compiler';
@@ -157,7 +158,7 @@ const executionControls = document.createElement('div'); executionControls.class
 const runInputs = document.createElement('div'); runInputs.className = 'run-inputs';
 runInputs.append(presets.querySelector('#parameters')!);
 const copyTools = document.createElement('div'); copyTools.className = 'matrix-copy-tools';
-copyTools.innerHTML = '<button id="copy-matrix-python" type="button" title="Copy every weight in W as a nested integer list, compatible with Python and JavaScript">Copy matrix to Python</button><button id="copy-input-vector" type="button" title="Copy the current committed vector xₜ, the input to the next multiplication—not a preview">Copy input vector</button><span id="copy-feedback" role="status" aria-live="polite"></span>';
+copyTools.innerHTML = '<button id="copy-matrix-python" type="button" title="Copy every weight in W as a nested integer list, compatible with Python and JavaScript">Copy matrix to Python</button><button id="copy-input-vector" type="button" title="Copy the current committed vector xₜ, the input to the next multiplication—not a preview">Copy input vector</button><button id="copy-python-program" type="button" title="Copy a standalone Python 3 script that runs this matrix until its end gate, streaming console output and printing the result. Inputs such as n come from the command line and default to the values set here.">Copy Python program</button><span id="copy-feedback" role="status" aria-live="polite"></span>';
 runInputs.append(copyTools);
 // The transport stays reachable while scrolling through W, x and the row calculation.
 const toolbar = document.querySelector<HTMLElement>('.machine-panel')!; toolbar.classList.add('debug-toolbar');
@@ -676,6 +677,7 @@ function render(): void {
   workspaceNotice.hidden = !needsCompile || activeTab === 'program' || activeTab === 'inspect';
   $<HTMLButtonElement>('copy-matrix-python').disabled = !artifact || needsCompile;
   $<HTMLButtonElement>('copy-input-vector').disabled = !machine || needsCompile || invalidParameters;
+  $<HTMLButtonElement>('copy-python-program').disabled = !artifact || needsCompile || invalidParameters;
   $('dimensions').textContent = artifact ? `${artifact.rows.length.toLocaleString()} × ${artifact.rows.length.toLocaleString()}` : '—';
   $('nonzero').textContent = artifact ? artifact.rows.reduce((total, row) => total + row.cols.length, 0).toLocaleString() : '—';
   $('contexts').textContent = artifact ? String(artifact.stats.contexts) : '—';
@@ -732,16 +734,19 @@ for (const example of examples) {
   item.append(card); $('preset-gallery').append(item); presetCards.set(example.id, card);
 }
 $('compile').addEventListener('click', compileFromEditor);
-async function copyNumericData(kind: 'matrix' | 'vector'): Promise<void> {
-  if (!artifact || !machine || needsCompile || (kind === 'vector' && invalidParameters)) return;
+async function copyExport(kind: 'matrix' | 'vector' | 'program'): Promise<void> {
+  if (!artifact || !machine || needsCompile || (kind !== 'matrix' && invalidParameters)) return;
   const feedback = $('copy-feedback');
   try {
     const tick = machine.tick;
-    const text = kind === 'matrix' ? matrixPython(artifact) : vectorPython(machine.state);
+    const inputs = kind === 'program' ? inputValues() : {};
+    const text = kind === 'matrix' ? matrixPython(artifact) : kind === 'vector' ? vectorPython(machine.state) : pythonProgram(artifact, inputs);
     try {
       if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
       await navigator.clipboard.writeText(text);
-      feedback.textContent = kind === 'matrix' ? `Copied full ${artifact.rows.length} × ${artifact.rows.length} matrix` : `Copied input vector xₜ · tick ${tick}`;
+      feedback.textContent = kind === 'matrix' ? `Copied full ${artifact.rows.length} × ${artifact.rows.length} matrix`
+        : kind === 'vector' ? `Copied input vector xₜ · tick ${tick}`
+        : `Copied Python program · run python3 program.py${Object.values(inputs).map(value => ` ${value}`).join('')}`;
     } catch {
       const field = $<HTMLTextAreaElement>('copy-manual-text'); field.value = text;
       if (!copyDialog.open) copyDialog.showModal();
@@ -750,8 +755,9 @@ async function copyNumericData(kind: 'matrix' | 'vector'): Promise<void> {
     }
   } catch (error) { feedback.textContent = error instanceof Error ? error.message : String(error); }
 }
-$('copy-matrix-python').addEventListener('click', () => { void copyNumericData('matrix'); });
-$('copy-input-vector').addEventListener('click', () => { void copyNumericData('vector'); });
+$('copy-matrix-python').addEventListener('click', () => { void copyExport('matrix'); });
+$('copy-input-vector').addEventListener('click', () => { void copyExport('vector'); });
+$('copy-python-program').addEventListener('click', () => { void copyExport('program'); });
 source.addEventListener('input', () => { stop(); needsCompile = true; $('dirty').textContent = 'Source changed · compile to apply'; render(); });
 source.addEventListener('scroll', () => { $('line-numbers').scrollTop = source.scrollTop; });
 source.addEventListener('keydown', event => {

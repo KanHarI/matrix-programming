@@ -64,7 +64,7 @@ Unchecking it uses a zero diagonal and lists every nonzero weight. These are
 absolute coefficient overrides; changing the view never changes execution.
 
 ```sh
-npm test             # Parser, matrix runtime, compiler and example-program tests
+npm test             # Parser, matrix runtime, compiler and example-program tests (python3 runs copied scripts)
 npm run build        # Type-check and production build, including the WASM kernel
 npx playwright install chromium
 npm run test:browser # Chromium integration tests
@@ -152,6 +152,20 @@ coefficients, source, and row calculations. Copy buttons export the entire dense
 matrix or committed input vector `x_t` as integer lists valid in Python and JS.
 Dense copy is capped at 10 million entries / 32 MiB; larger matrices can use
 the full sparse JSON or nonzero CSV downloads in Inspect.
+
+**Copy Python program** copies a standalone Python 3 script (standard library
+only) that holds W as sparse rows and repeats `x ← ReLU(W x)` until the end
+gate. It streams console output, reads console input from stdin, draws the
+screen in the terminal, and prints `result = …`. Overflow and fault gates stop
+it with the browser's messages. Inputs come from the command line and default
+to the values set when copying:
+
+```sh
+python3 program.py 7   # result = 0  (stderr: Ended after 5 ticks.)
+```
+
+It is exact but slow for large matrices: the 4019×4019 matrix computer takes
+about a minute for input 4.
 
 Recursion currently uses per-depth code/data banks, not one shared recursive body
 with a dynamically addressed stack. Mutual recursion, atomic parallel
