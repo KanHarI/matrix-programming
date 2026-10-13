@@ -1,3 +1,7 @@
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import { choosePreset, showTab } from './navigation';
 
@@ -177,6 +181,49 @@ test('copying a large matrix exports every row and column, not the displayed exc
   expect(vector).toHaveLength(n);
   expect(vector.every(value => Number.isInteger(value) && value >= 0)).toBe(true);
   await expect(page.locator('#tick')).toHaveText('0');
+});
+
+test('copied Python program runs the matrix to its end gate, taking n from the command line', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await open(page);
+  const directory = mkdtempSync(join(tmpdir(), 'matrix-python-e2e-'));
+  const python = async (name: string, ...args: string[]) => {
+    const path = join(directory, `${name}.py`);
+    writeFileSync(path, await page.evaluate(() => navigator.clipboard.readText()));
+    return (...override: string[]) => spawnSync('python3', ['-I', '-X', 'utf8', path, ...(override.length ? override : args)], { encoding: 'utf8', input: '' });
+  };
+  try {
+    const n = page.locator('[data-parameter="n"]');
+    await n.fill('-1');
+    await expect(page.locator('#copy-python-program')).toBeDisabled();
+    await n.fill('9');
+    await page.locator('#copy-python-program').click();
+    await expect(page.locator('#copy-feedback')).toHaveText('Copied Python program · run python3 program.py 9');
+    const parity = await python('parity');
+    // floor(9 / 2) + 2 = 6 updates; 9 is odd.
+    expect(parity()).toMatchObject({ status: 0, stdout: 'result = 0\n', stderr: 'Ended after 6 ticks.\n' });
+    expect(parity('42')).toMatchObject({ status: 0, stdout: 'result = 1\n', stderr: 'Ended after 23 ticks.\n' });
+    expect(parity('4294967296')).toMatchObject({ status: 2, stdout: '' });
+    await expect(page.locator('#tick')).toHaveText('0');
+
+    await choosePreset(page, 'hello');
+    await page.locator('#copy-python-program').click();
+    await expect(page.locator('#copy-feedback')).toHaveText('Copied Python program · run python3 program.py');
+    const hello = (await python('hello'))();
+    await page.locator('#run').click();
+    await expect(page.locator('#status')).toHaveText('Ended');
+    await expect(page.locator('#console-output')).toHaveText('Hello, world!\n');
+    const ticks = (await page.locator('#tick').textContent())!.replaceAll(',', '');
+    expect(hello.status).toBe(0);
+    expect(hello.stderr).toBe(`Ended after ${ticks} ticks.\n`);
+    const lines = hello.stdout.split('\n');
+    expect(lines[0]).toBe('Hello, world!');
+    expect(lines.slice(1, 17).every(line => /^[#.]{16}$/.test(line))).toBe(true);
+    expect(lines[8]).toBe('....########....');
+    expect(lines.slice(17)).toEqual(['result = 1', '']);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test('clipboard denial provides exact selectable text instead of claiming success', async ({ page }) => {
