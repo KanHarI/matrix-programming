@@ -11,6 +11,8 @@ export interface Devices {
   consoleOutput?: { codepoint: number; emit: number };
   consoleInput?: { request: number; available: number; eof: number; codepoint: number };
   screen?: { x: number; y: number; r: number; g: number; b: number; emit: number };
+  /** Pixel readback shares the screen's x and y ports; the host fills one latch per channel. */
+  screenRead?: { x: number; y: number; request: number; r: number; g: number; b: number };
 }
 export interface Artifact {
   version: 1;

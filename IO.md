@@ -322,7 +322,7 @@ The matrix needs no full-screen address decoder, per-pixel registers, or network
 
 The standard port uses six coordinates regardless of how many pixels have been emitted. Its compiled helper still needs control states and bounded transfer/checking temporaries, so six is the interface count rather than the entire implementation footprint. Disabled or unused display support removes both the port and its device-specific helpers.
 
-With only these six coordinates, the program cannot read pixels back from the host or request atomic presentation of a group of writes. It must retain any image data it needs for later computation in its own explicit variables. Readback or frame boundaries would require separately specified extensions.
+With only these six coordinates, the program cannot read pixels back from the host or request atomic presentation of a group of writes. Readback is now a separate extension: `readpixel(x, y, r, g, b)` (or `readpixel(x, y, channel)` for one channel) reuses the X and Y ports, adds a request bit, and receives all three channels through input latches exactly like a console read (`x_next = relu(W*x + B*u)`). It never blocks and consumes nothing, so the screen can serve as host-retained memory; see [IMPLEMENTATION.md](IMPLEMENTATION.md#io). Frame boundaries would still require a separately specified extension.
 
 ## 6. Browser integration
 

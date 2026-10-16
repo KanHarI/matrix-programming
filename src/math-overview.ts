@@ -161,7 +161,7 @@ export class MathOverview {
     const n = artifact.rows.length;
     const count = Math.min(n, 8);
     const excerpt = n > count;
-    const hasInput = Boolean(artifact.devices.consoleInput);
+    const hasInput = Boolean(artifact.devices.consoleInput || artifact.devices.screenRead);
     const heading = this.element('div', 'math-heading');
     heading.append(this.element('h2', '', 'The matrix step'));
     this.phase = this.element('span', 'math-phase');

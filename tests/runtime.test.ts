@@ -201,6 +201,54 @@ describe('optional device ports', () => {
     const a = reader(); a.rows[1] = row([1]);
     expect(() => new Machine(a)).toThrow('Input latch rows');
   });
+
+  function pixelReader(): Artifact {
+    // x, y, r, g, b, emit, read request, red/green/blue latches, first, end.
+    // Tick 0 requests pixel (3, 4); tick 1 writes that pixel and requests it again.
+    const a = artifact([3, 4, 20, 30, 40, 0, 1, 0, 0, 0, 1, 0],
+      [row([0]), row([1]), row([2]), row([3]), row([4]), row([10]), row([10]), row(), row(), row(), row(), row([8])]);
+    a.devices.screen = { x: 0, y: 1, r: 2, g: 3, b: 4, emit: 5 };
+    a.devices.screenRead = { x: 0, y: 1, request: 6, r: 7, g: 8, b: 9 };
+    return a;
+  }
+
+  it('answers a pixel read with all three channels on the next update, after earlier writes commit', () => {
+    for (const backend of [wasm, referenceBackend]) {
+      const machine = new Machine(pixelReader(), {}, backend);
+      // The first request reads a still-black screen; the preview already shows it.
+      machine.stepPhase();
+      expect(Array.from(machine.raw!.slice(7, 10))).toEqual([0n, 0n, 0n]);
+      machine.stepPhase(); machine.stepPhase();
+      expect(machine.events).toHaveLength(1);
+      // The write committed with the second request is visible to that request.
+      machine.stepPhase();
+      expect(Array.from(machine.raw!.slice(7, 10))).toEqual([20n, 30n, 40n]);
+      machine.stepPhase(); machine.stepPhase();
+      expect(Array.from(machine.state.slice(7, 10))).toEqual([20, 30, 40]);
+      // Latch rows are zero in W, so values last one update unless the matrix captures them.
+      machine.step();
+      expect([...machine.state.slice(7, 10), machine.state[11]]).toEqual([0, 0, 0, 30]);
+      expect(machine.status).toBe('ended');
+      expect(machine.events).toHaveLength(1);
+    }
+  });
+
+  it('faults on an out-of-range pixel read before committing it, and keeps the latches out of W', () => {
+    const late = pixelReader(); late.initial[6] = 0; late.initial[1] = 16; late.rows[5] = row();
+    const machine = new Machine(late);
+    expect(machine.step()).toBe(false);
+    expect(machine.error).toBe('Pixel read is outside the 16×16 display bounds');
+    expect(machine.tick).toBe(0);
+    expect(machine.faultRegister).toBe(6);
+    const initial = pixelReader(); initial.initial[0] = 16;
+    const early = new Machine(initial);
+    expect(early.stepPhase()).toBe(false);
+    expect(early.error).toBe('Pixel read is outside the 16×16 display bounds');
+    const latch = pixelReader(); latch.rows[8] = row([8]);
+    expect(() => new Machine(latch)).toThrow('Pixel read latch rows');
+    const shared = pixelReader(); shared.devices.screenRead!.r = 6;
+    expect(() => new Machine(shared)).toThrow('Pixel read ports must be distinct');
+  });
 });
 
 describe('the original primality matrix', () => {

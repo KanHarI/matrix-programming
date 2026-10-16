@@ -159,4 +159,67 @@ describe('compiled primitives execute exclusively as matrix updates', () => {
       expect(result(machine)).toBe(input === null ? MAX_U32 : input.codePointAt(0)!);
     }
   });
+
+  it('reads back each channel of a written pixel, in both backends', () => {
+    // Weighted so a swapped or missing channel changes the sum.
+    const source = 'fn main(x) { let before = readpixel(x, 15, 2); pixel(x, 15, 7, 255, 31); return before + readpixel(x, 15, 0) + readpixel(x, 15, 1) + readpixel(x, 15, 1) + readpixel(x, 15, 2) + readpixel(x, 15, 2) + readpixel(x, 15, 2); }';
+    for (const backend of [wasm, referenceBackend]) {
+      expect(result(execute(source, { x: 15 }, backend))).toBe(7 + 2 * 255 + 3 * 31);
+    }
+    // Pixel memory survives across loop iterations: a running total kept only on the screen.
+    const counter = 'fn main(n) { while (n > 0) { pixel(0, 0, readpixel(0, 0, 0) + 1, 0, 0); n = n - 1; } return readpixel(0, 0, 0); }';
+    expect(result(execute(counter, { n: 5 }))).toBe(5);
+    // A dynamic channel selects among the three delivered values.
+    const dynamic = 'fn main(c) { pixel(2, 3, 10, 20, 30); return readpixel(2, 3, c); }';
+    for (const c of [0, 1, 2]) expect(result(execute(dynamic, { c }))).toBe([10, 20, 30][c]!);
+  });
+
+  it('reads all three channels with one request into variables or array elements', () => {
+    const triplet = `fn main(i) {
+      pixel(9, 1, 11, 22, 33);
+      let r; let g; let b;
+      readpixel(9, 1, r, g, b);
+      let rgb[4];
+      readpixel(9, 1, rgb[i], rgb[i + 1], rgb[0]);
+      return r + g + g + b + b + b + rgb[0] + rgb[1] + rgb[2] + rgb[2];
+    }`;
+    for (const backend of [wasm, referenceBackend]) {
+      // rgb = [33, 11, 22, 0] for i = 1.
+      expect(result(execute(triplet, { i: 1 }, backend))).toBe(11 + 2 * 22 + 3 * 33 + 33 + 11 + 2 * 22);
+    }
+    const one = compile('fn main() { let r; let g; let b; readpixel(0, 0, r, g, b); return r + g + b; }');
+    const three = compile('fn main() { return readpixel(0, 0, 0) + readpixel(0, 0, 1) + readpixel(0, 0, 2); }');
+    expect(one.markers.filter(marker => marker.label === 'request pixel')).toHaveLength(1);
+    expect(three.markers.filter(marker => marker.label === 'request pixel')).toHaveLength(3);
+    expect(one.stats.instructions).toBeLessThan(three.stats.instructions);
+  });
+
+  it('links pixel reads as part of the screen device, sharing its address ports', () => {
+    const readOnly = compile('fn main() { return readpixel(3, 4, 1); }');
+    expect(readOnly.devices.screen).toBeUndefined();
+    expect(Object.keys(readOnly.devices.screenRead!)).toEqual(['x', 'y', 'request', 'r', 'g', 'b']);
+    expect(readOnly.registers[readOnly.devices.screenRead!.g]!.name).toBe('screen.latch.g');
+    expect(readOnly.registers.filter(register => register.name.startsWith('screen.read.')).map(register => register.name)).toEqual(['screen.read.r', 'screen.read.g', 'screen.read.b']);
+    expect(result(execute('fn main() { return readpixel(3, 4, 1); }'))).toBe(0);
+    expect(() => compile('fn main() { return readpixel(0, 0, 0); }', { devices: { screen: false } })).toThrow('The screen device is disabled');
+    expect(() => compile('fn main() { return readpixel(0, 0); }')).toThrow('readpixel expects 3 arguments (x, y, channel) or 5 (x, y, r, g, b)');
+    expect(() => compile('fn main() { return readpixel(0, 0, 3); }')).toThrow('readpixel channel outside 0..2');
+    expect(() => compile('fn main() { readpixel(0, 0, 1, 2, 3); return 0; }')).toThrow('stores into variables or array elements');
+    expect(() => compile('fn f() { return 0; } fn main() { let a[2]; let g; let b; readpixel(0, 0, a[f()], g, b); return 0; }')).toThrow('targets cannot contain calls');
+    expect(() => compile('fn peek() { return readpixel(0, 0, 0); } fn main() { let (a, b) = parallel { peek(), peek() }; return a; }')).toThrow('pure');
+    expect(() => compile('fn readpixel() { return 0; } fn main() { return 0; }')).toThrow('reserved');
+  });
+
+  it('faults on a pixel read outside the screen before the request commits, or on a dynamic channel above 2', () => {
+    for (const [x, y] of [[16, 0], [0, 16]]) {
+      const machine = execute('fn main(x, y) { return readpixel(x, y, 0); }', { x, y });
+      expect(machine.status).toBe('fault');
+      expect(machine.error).toBe('Pixel read is outside the 16×16 display bounds');
+      expect(machine.faultRegister).toBe(machine.artifact.devices.screenRead!.request);
+      expect(machine.state[machine.artifact.devices.screenRead!.request]).toBe(0);
+    }
+    const channel = execute('fn main(c) { return readpixel(0, 0, c); }', { c: 3 });
+    expect(channel.status).toBe('fault');
+    expect(channel.error).toBe('Line 1: readpixel channel is outside 0..2');
+  });
 });
